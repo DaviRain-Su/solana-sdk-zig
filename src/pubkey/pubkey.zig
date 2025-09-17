@@ -1,9 +1,25 @@
 const std = @import("std");
 const base58 = @import("base58");
-const bpf = @import("bpf.zig");
-const log = @import("log.zig");
-const syscalls = @import("syscalls.zig");
-const ProgramError = @import("program_error.zig").ProgramError;
+const bpf = @import("../bpf.zig");
+const log = @import("../log.zig");
+const syscalls = @import("../syscalls.zig");
+const ProgramError = @import("../program_error.zig").ProgramError;
+
+// Re-export submodules
+pub const extensions = @import("extensions.zig");
+pub const hasher = @import("hasher.zig");
+pub const errors = @import("error.zig");
+
+// Re-export common system program IDs from extensions
+pub const SYSTEM_PROGRAM_ID = extensions.SYSTEM_PROGRAM_ID;
+pub const TOKEN_PROGRAM_ID = extensions.TOKEN_PROGRAM_ID;
+pub const ASSOCIATED_TOKEN_PROGRAM_ID = extensions.ASSOCIATED_TOKEN_PROGRAM_ID;
+pub const RENT_SYSVAR_ID = extensions.RENT_SYSVAR_ID;
+pub const CLOCK_SYSVAR_ID = extensions.CLOCK_SYSVAR_ID;
+pub const STAKE_PROGRAM_ID = extensions.STAKE_PROGRAM_ID;
+pub const VOTE_PROGRAM_ID = extensions.VOTE_PROGRAM_ID;
+pub const BPF_LOADER_PROGRAM_ID = extensions.BPF_LOADER_PROGRAM_ID;
+pub const BPF_UPGRADEABLE_LOADER_PROGRAM_ID = extensions.BPF_UPGRADEABLE_LOADER_PROGRAM_ID;
 
 const BASE58_ENDEC = base58.Table.BITCOIN;
 
@@ -213,6 +229,64 @@ pub const Pubkey = extern struct {
         return true;
     }
 
+    /// Create a Pubkey with a seed (matching Rust's create_with_seed)
+    pub fn createWithSeed(
+        base: *const Pubkey,
+        seed: []const u8,
+        owner: *const Pubkey,
+    ) !Pubkey {
+        // Check seed length
+        if (seed.len > MAX_SEED_LEN) {
+            return error.MaxSeedLengthExceeded;
+        }
+
+        // Check for illegal owner (PDA marker check)
+        const owner_bytes = owner.bytes;
+        if (owner_bytes.len >= PDA_MARKER.len) {
+            const slice = owner_bytes[owner_bytes.len - PDA_MARKER.len ..];
+            if (std.mem.eql(u8, slice, PDA_MARKER)) {
+                return error.IllegalOwner;
+            }
+        }
+
+        // Hash the components using SHA256
+        var h = std.crypto.hash.sha2.Sha256.init(.{});
+        h.update(&base.bytes);
+        h.update(seed);
+        h.update(&owner.bytes);
+        var result: [32]u8 = undefined;
+        h.final(&result);
+        return Pubkey.fromBytes(result);
+    }
+
+    /// Create a unique Pubkey for testing (matching Rust's new_unique)
+    var unique_counter = std.atomic.Value(u32).init(1);
+
+    pub fn newUnique() Pubkey {
+        const counter = unique_counter.fetchAdd(1, .monotonic);
+        var bytes: [32]u8 = undefined;
+
+        // Use big-endian to ensure ordering (like Rust version)
+        std.mem.writeInt(u32, bytes[0..4], counter, .big);
+
+        // Fill rest with pseudo-random data based on counter
+        var prng = std.Random.DefaultPrng.init(counter);
+        const random = prng.random();
+        random.bytes(bytes[4..]);
+
+        return Pubkey.fromBytes(bytes);
+    }
+
+    /// Get bytes array (matching Rust's to_bytes)
+    pub fn toBytes(self: Pubkey) [32]u8 {
+        return self.bytes;
+    }
+
+    /// Get reference to bytes array (matching Rust's as_array)
+    pub fn asArray(self: *const Pubkey) *const [32]u8 {
+        return &self.bytes;
+    }
+
     fn sqrtRatioM1(u: std.crypto.ecc.Curve25519.Fe, v: std.crypto.ecc.Curve25519.Fe) u32 {
         const v3 = v.sq().mul(v); // v^3
         const x = v3.sq().mul(u).mul(v).pow2523().mul(v3).mul(u); // uv^3(uv^7)^((q-5)/8)
@@ -225,66 +299,131 @@ pub const Pubkey = extern struct {
     }
 
     pub fn createProgramAddress(seeds: anytype, program_id: Pubkey) !Pubkey {
-        if (seeds.len > Pubkey.max_num_seeds) {
-            return error.MaxSeedLengthExceeded;
-        }
+        const seeds_info = @typeInfo(@TypeOf(seeds));
 
-        comptime var seeds_index = 0;
-        inline while (seeds_index < seeds.len) : (seeds_index += 1) {
-            if (@as([]const u8, seeds[seeds_index]).len > Pubkey.max_seed_length) {
+        // Handle both tuples (comptime known) and slices (runtime)
+        const is_tuple = seeds_info == .@"struct" and seeds_info.@"struct".is_tuple;
+
+        if (is_tuple) {
+            // Comptime path for tuples
+            if (seeds.len > Pubkey.max_num_seeds) {
                 return error.MaxSeedLengthExceeded;
             }
-        }
 
-        var address: Pubkey = undefined;
+            comptime var seeds_index = 0;
+            inline while (seeds_index < seeds.len) : (seeds_index += 1) {
+                if (@as([]const u8, seeds[seeds_index]).len > Pubkey.max_seed_length) {
+                    return error.MaxSeedLengthExceeded;
+                }
+            }
 
-        if (bpf.is_bpf_program) {
-            const Syscall = struct {
-                extern fn sol_create_program_address(
-                    seeds_ptr: [*]const []const u8,
-                    seeds_len: u64,
-                    program_id_ptr: *const Pubkey,
-                    address_ptr: *Pubkey,
-                ) callconv(.C) u64;
-            };
+            var address: Pubkey = undefined;
 
-            var seeds_array: [seeds.len][]const u8 = undefined;
-            inline for (seeds, 0..) |seed, i| seeds_array[i] = seed;
+            if (bpf.is_bpf_program) {
+                const Syscall = struct {
+                    extern fn sol_create_program_address(
+                        seeds_ptr: [*]const []const u8,
+                        seeds_len: u64,
+                        program_id_ptr: *const Pubkey,
+                        address_ptr: *Pubkey,
+                    ) callconv(.C) u64;
+                };
 
-            const result = Syscall.sol_create_program_address(
-                &seeds_array,
-                seeds.len,
-                &program_id,
-                &address,
-            );
-            if (result != 0) {
-                log.print("failed to create program address with seeds {any} and program id {}: error code {}", .{
-                    seeds,
-                    program_id,
-                    result,
-                });
-                return error.Unexpected;
+                var seeds_array: [seeds.len][]const u8 = undefined;
+                inline for (seeds, 0..) |seed, i| seeds_array[i] = seed;
+
+                const result = Syscall.sol_create_program_address(
+                    &seeds_array,
+                    seeds.len,
+                    &program_id,
+                    &address,
+                );
+                if (result != 0) {
+                    log.print("failed to create program address with seeds {any} and program id {}: error code {}", .{
+                        seeds,
+                        program_id,
+                        result,
+                    });
+                    return error.Unexpected;
+                }
+
+                return address;
+            }
+
+            @setEvalBranchQuota(100_000_000);
+
+            var h = std.crypto.hash.sha2.Sha256.init(.{});
+            comptime var i = 0;
+            inline while (i < seeds.len) : (i += 1) {
+                h.update(seeds[i]);
+            }
+            h.update(&program_id.bytes);
+            h.update("ProgramDerivedAddress");
+            h.final(&address.bytes);
+
+            if (address.isOnCurve()) {
+                return error.InvalidSeeds;
+            }
+
+            return address;
+        } else {
+            // Runtime path for slices
+            if (seeds.len > Pubkey.max_num_seeds) {
+                return error.MaxSeedLengthExceeded;
+            }
+
+            for (seeds) |seed| {
+                if (seed.len > Pubkey.max_seed_length) {
+                    return error.MaxSeedLengthExceeded;
+                }
+            }
+
+            var address: Pubkey = undefined;
+
+            if (bpf.is_bpf_program) {
+                const Syscall = struct {
+                    extern fn sol_create_program_address(
+                        seeds_ptr: [*]const []const u8,
+                        seeds_len: u64,
+                        program_id_ptr: *const Pubkey,
+                        address_ptr: *Pubkey,
+                    ) callconv(.C) u64;
+                };
+
+                const result = Syscall.sol_create_program_address(
+                    seeds.ptr,
+                    seeds.len,
+                    &program_id,
+                    &address,
+                );
+                if (result != 0) {
+                    log.print("failed to create program address with seeds {any} and program id {}: error code {}", .{
+                        seeds,
+                        program_id,
+                        result,
+                    });
+                    return error.Unexpected;
+                }
+
+                return address;
+            }
+
+            @setEvalBranchQuota(100_000_000);
+
+            var h = std.crypto.hash.sha2.Sha256.init(.{});
+            for (seeds) |seed| {
+                h.update(seed);
+            }
+            h.update(&program_id.bytes);
+            h.update("ProgramDerivedAddress");
+            h.final(&address.bytes);
+
+            if (address.isOnCurve()) {
+                return error.InvalidSeeds;
             }
 
             return address;
         }
-
-        @setEvalBranchQuota(100_000_000);
-
-        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-        comptime var i = 0;
-        inline while (i < seeds.len) : (i += 1) {
-            hasher.update(seeds[i]);
-        }
-        hasher.update(&program_id.bytes);
-        hasher.update("ProgramDerivedAddress");
-        hasher.final(&address.bytes);
-
-        if (address.isOnCurve()) {
-            return error.InvalidSeeds;
-        }
-
-        return address;
     }
 
     /// Find a valid program address and bump seed
@@ -368,56 +507,72 @@ pub const Pubkey = extern struct {
 
 const Error = error{ InvalidBytesLength, InvalidEncodedLength, InvalidEncodedValue };
 
-/// System program ID
-pub const SYSTEM_PROGRAM_ID = Pubkey{
-    .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-};
+test "createWithSeed" {
+    const testing = std.testing;
 
-/// Token program ID
-pub const TOKEN_PROGRAM_ID = Pubkey{
-    .bytes = .{
-        6,  221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70,  206, 235, 121, 172,
-        28, 180, 133, 237, 95,  91,  55,  145, 58,  140, 245, 133, 126, 255, 0,   169,
-    },
-};
+    const base = Pubkey.ZEROES;
+    const owner = SYSTEM_PROGRAM_ID;
 
-/// Associated token program ID
-pub const ASSOCIATED_TOKEN_PROGRAM_ID = Pubkey{
-    .bytes = .{
-        140, 151, 37,  143, 78,  36, 137, 241, 187, 61,  16,  41,  20,  142, 13, 131, 11,
-        90,  19,  153, 218, 255, 16, 132, 4,   142, 123, 216, 219, 233, 248, 89,
-    },
-};
+    // Test valid seed
+    const addr1 = try Pubkey.createWithSeed(&base, "test-seed", &owner);
+    _ = addr1;
 
-/// Sysvar IDs
-pub const SYSVAR_CLOCK_ID = Pubkey{
-    .bytes = .{
-        6,   167, 213, 23,  24,  199, 116, 201, 40,  86, 99, 152, 105, 29, 94, 182,
-        139, 94,  184, 163, 155, 75,  109, 92,  115, 85, 91, 33,  0,   0,  0,  0,
-    },
-};
+    // Test empty seed
+    const addr2 = try Pubkey.createWithSeed(&base, "", &owner);
+    _ = addr2;
 
-pub const SYSVAR_RENT_ID = Pubkey{
-    .bytes = .{
-        6,   167, 213, 23, 25, 44,  86, 142, 224, 138, 132, 95, 115, 210, 151, 136,
-        207, 3,   92,  49, 69, 178, 26, 179, 68,  216, 6,   46, 169, 64,  0,   0,
-    },
-};
+    // Test max length seed
+    const max_seed = "a" ** 32;
+    const addr3 = try Pubkey.createWithSeed(&base, max_seed, &owner);
+    _ = addr3;
 
-pub const SYSVAR_INSTRUCTIONS_ID = Pubkey{
-    .bytes = .{
-        6,   167, 213, 23, 25,  47,  10, 175, 198, 242, 101, 227, 251, 119, 204, 122,
-        218, 130, 197, 41, 208, 190, 59, 19,  110, 45,  0,   85,  32,  0,   0,   0,
-    },
-};
+    // Test seed too long
+    const long_seed = "a" ** 33;
+    const result = Pubkey.createWithSeed(&base, long_seed, &owner);
+    try testing.expectError(error.MaxSeedLengthExceeded, result);
+}
 
-test "pubkey display" {
-    //std.debug.print("key: {}\n", .{TOKEN_PROGRAM_ID});
-    //std.debug.print("key: {}\n", .{SYSVAR_CLOCK_ID});
-    //std.debug.print("key: {}\n", .{SYSTEM_PROGRAM_ID});
-    //std.debug.print("key: {}\n", .{ASSOCIATED_TOKEN_PROGRAM_ID});
-    //std.debug.print("key: {}\n", .{SYSVAR_INSTRUCTIONS_ID});
-    //std.debug.print("key: {}\n", .{SYSVAR_RENT_ID});
+test "newUnique generates different addresses" {
+    const testing = std.testing;
+
+    const addr1 = Pubkey.newUnique();
+    const addr2 = Pubkey.newUnique();
+    const addr3 = Pubkey.newUnique();
+
+    try testing.expect(!addr1.equals(&addr2));
+    try testing.expect(!addr2.equals(&addr3));
+    try testing.expect(!addr1.equals(&addr3));
+}
+
+test "createProgramAddress" {
+    const testing = std.testing;
+    const program_id = BPF_UPGRADEABLE_LOADER_PROGRAM_ID;
+
+    // Test with valid seeds
+    const seeds = .{ "vault", &[_]u8{1} };
+    const pda = try Pubkey.createProgramAddress(seeds, program_id);
+
+    // Test that PDA is off curve
+    try testing.expect(!pda.isOnCurve());
+
+    // Test with max seeds
+    const max_seeds = .{ &[_]u8{1}, &[_]u8{2}, &[_]u8{3}, &[_]u8{4}, &[_]u8{5}, &[_]u8{6}, &[_]u8{7}, &[_]u8{8}, &[_]u8{9}, &[_]u8{10}, &[_]u8{11}, &[_]u8{12}, &[_]u8{13}, &[_]u8{14}, &[_]u8{15}, &[_]u8{16} };
+    const pda2 = try Pubkey.createProgramAddress(max_seeds, program_id);
+    _ = pda2;
+}
+
+test "findProgramAddress" {
+    const testing = std.testing;
+    const program_id = BPF_UPGRADEABLE_LOADER_PROGRAM_ID;
+
+    const seeds = .{ "Lil'", "Bits" };
+    const pda_result = try Pubkey.findProgramAddress(seeds, program_id);
+
+    // Verify that the bump seed generates the same address
+    const seeds_with_bump = .{ "Lil'", "Bits", &[_]u8{pda_result.bump_seed[0]} };
+    const pda_verify = try Pubkey.createProgramAddress(seeds_with_bump, program_id);
+
+    try testing.expect(pda_result.address.equals(&pda_verify));
 }
 
 test "pubkey equals" {

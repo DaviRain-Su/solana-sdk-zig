@@ -1,5 +1,5 @@
 const std = @import("std");
-const Pubkey = @import("pubkey.zig").Pubkey;
+const Pubkey = @import("pubkey/pubkey.zig").Pubkey;
 
 /// Account metadata for instructions
 pub const AccountMeta = extern struct {

@@ -1,6 +1,6 @@
 /// Solana SBF/BPF syscall bindings
 const std = @import("std");
-const Pubkey = @import("pubkey.zig").Pubkey;
+const Pubkey = @import("pubkey/pubkey.zig").Pubkey;
 
 /// Success return code for syscalls
 pub const SUCCESS: u64 = 0;

@@ -4,7 +4,7 @@
 const std = @import("std");
 
 // Core types
-pub const pubkey = @import("pubkey.zig");
+pub const pubkey = @import("pubkey/pubkey.zig");
 pub const account_info = @import("account_info.zig");
 pub const instruction = @import("instruction.zig");
 pub const program_error = @import("program_error.zig");
@@ -30,9 +30,9 @@ pub const TOKEN_PROGRAM_ID = pubkey.TOKEN_PROGRAM_ID;
 pub const ASSOCIATED_TOKEN_PROGRAM_ID = pubkey.ASSOCIATED_TOKEN_PROGRAM_ID;
 
 // Re-export sysvar IDs
-pub const SYSVAR_CLOCK_ID = pubkey.SYSVAR_CLOCK_ID;
-pub const SYSVAR_RENT_ID = pubkey.SYSVAR_RENT_ID;
-pub const SYSVAR_INSTRUCTIONS_ID = pubkey.SYSVAR_INSTRUCTIONS_ID;
+pub const SYSVAR_CLOCK_ID = pubkey.CLOCK_SYSVAR_ID;
+pub const SYSVAR_RENT_ID = pubkey.RENT_SYSVAR_ID;
+pub const SYSVAR_INSTRUCTIONS_ID = pubkey.extensions.SYSVAR_PROGRAM_ID;
 
 // Helper functions
 pub const toErrorCode = program_error.toErrorCode;
