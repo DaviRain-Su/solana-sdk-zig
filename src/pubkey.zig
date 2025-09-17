@@ -15,7 +15,7 @@ pub const Pubkey = extern struct {
     pub const SIZE: usize = PUBKEY_BYTES;
 
     /// Default pubkey - all zeros
-    pub const default = Pubkey{ .bytes = .{0} ** PUBKEY_BYTES };
+    pub const ZEROES = Pubkey{ .bytes = .{0} ** PUBKEY_BYTES };
 
     /// Create a Pubkey from a byte array
     pub fn fromBytes(bytes: [PUBKEY_BYTES]u8) Pubkey {
@@ -223,7 +223,7 @@ test "pubkey from slice" {
 }
 
 test "pubkey default" {
-    const key = Pubkey.default;
+    const key = Pubkey.ZEROES;
     //std.debug.print("key: {}\n", .{key});
     try std.testing.expect(key.bytes[0] == 0);
     try std.testing.expect(key.bytes[31] == 0);

@@ -278,8 +278,8 @@ test "account info basic operations" {
         .is_writable = 1,
         .executable = 0,
         .resize_delta = 0,
-        .key = Pubkey.default,
-        .owner = Pubkey.default,
+        .key = Pubkey.ZEROES,
+        .owner = Pubkey.ZEROES,
         .lamports = 1000,
         .data_len = 100,
         .data = @ptrFromInt(0x1000), // Mock pointer

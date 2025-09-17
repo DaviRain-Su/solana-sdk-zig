@@ -118,7 +118,7 @@ pub const InstructionBuilder = struct {
 };
 
 test "account meta creation" {
-    const key = Pubkey.default;
+    const key = Pubkey.ZEROES;
 
     const meta1 = AccountMeta.readOnly(key, true);
     try std.testing.expect(meta1.is_signer);
@@ -130,10 +130,10 @@ test "account meta creation" {
 }
 
 test "instruction creation" {
-    const program = Pubkey.default;
+    const program = Pubkey.ZEROES;
     const accounts = [_]AccountMeta{
-        AccountMeta.writable(Pubkey.default, true),
-        AccountMeta.readOnly(Pubkey.default, false),
+        AccountMeta.writable(Pubkey.ZEROES, true),
+        AccountMeta.readOnly(Pubkey.ZEROES, false),
     };
     const data = [_]u8{ 1, 2, 3, 4 };
 
