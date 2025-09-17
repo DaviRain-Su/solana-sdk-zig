@@ -231,7 +231,7 @@ pub const Pubkey = extern struct {
 
     /// Create a Pubkey with a seed (matching Rust's create_with_seed)
     pub fn createWithSeed(
-        base: *const Pubkey,
+        self: Pubkey,
         seed: []const u8,
         owner: *const Pubkey,
     ) !Pubkey {
@@ -251,7 +251,7 @@ pub const Pubkey = extern struct {
 
         // Hash the components using SHA256
         var h = std.crypto.hash.sha2.Sha256.init(.{});
-        h.update(&base.bytes);
+        h.update(&self.bytes);
         h.update(seed);
         h.update(&owner.bytes);
         var result: [32]u8 = undefined;
@@ -514,21 +514,21 @@ test "createWithSeed" {
     const owner = SYSTEM_PROGRAM_ID;
 
     // Test valid seed
-    const addr1 = try Pubkey.createWithSeed(&base, "test-seed", &owner);
+    const addr1 = try base.createWithSeed("test-seed", &owner);
     _ = addr1;
 
     // Test empty seed
-    const addr2 = try Pubkey.createWithSeed(&base, "", &owner);
+    const addr2 = try base.createWithSeed("", &owner);
     _ = addr2;
 
     // Test max length seed
     const max_seed = "a" ** 32;
-    const addr3 = try Pubkey.createWithSeed(&base, max_seed, &owner);
+    const addr3 = try base.createWithSeed(max_seed, &owner);
     _ = addr3;
 
     // Test seed too long
     const long_seed = "a" ** 33;
-    const result = Pubkey.createWithSeed(&base, long_seed, &owner);
+    const result = base.createWithSeed(long_seed, &owner);
     try testing.expectError(error.MaxSeedLengthExceeded, result);
 }
 
