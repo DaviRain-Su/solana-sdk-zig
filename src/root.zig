@@ -1,7 +1,6 @@
 /// Pinocchio-Zig: Zero-dependency, zero-copy Solana program framework for Zig
 ///
 /// A lightweight alternative to solana-program, inspired by anza-xyz/pinocchio
-
 const std = @import("std");
 
 // Core types
