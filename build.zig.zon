@@ -1,0 +1,20 @@
+.{
+    .name = .pinocchio_zig,
+    .version = "0.1.0",
+    .fingerprint = 0x389efe8e8d1a9df0,
+    .minimum_zig_version = "0.13.0",
+    .dependencies = .{
+        .base58 = .{
+            .url = "https://github.com/Syndica/base58-zig#ed42a74253e71577680ca826ee8ba16631808f3f",
+            .hash = "base58-0.2.0-wW0iYDIxAABuG_QuEPHMJgn99CvMhTFzgYhGrneaMhdJ",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+        "CLAUDE.md",
+        "LICENSE",
+    },
+}
