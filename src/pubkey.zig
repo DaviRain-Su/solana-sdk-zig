@@ -42,7 +42,7 @@ pub const Pubkey = extern struct {
     pub const ZEROES = Pubkey{ .bytes = .{0} ** PUBKEY_BYTES };
 
     pub fn fromPublicKey(public_key: *const std.crypto.sign.Ed25519.PublicKey) Pubkey {
-        return Pubkey.fromBytes(public_key);
+        return Pubkey.fromBytes(public_key.bytes);
     }
 
     /// Create a Pubkey from a byte array
