@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) void {
 
     // Export self as a module
     const pinocchio_mod = b.addModule("pinocchio", .{
-        .root_source_file = b.path("src/lib.zig"),
+        .root_source_file = b.path("src/root.zig"),
     });
 
     const lib = b.addStaticLibrary(.{

@@ -505,8 +505,6 @@ pub const Pubkey = extern struct {
     }
 };
 
-const Error = error{ InvalidBytesLength, InvalidEncodedLength, InvalidEncodedValue };
-
 test "createWithSeed" {
     const testing = std.testing;
 
@@ -538,6 +536,7 @@ test "newUnique generates different addresses" {
     const addr1 = Pubkey.newUnique();
     const addr2 = Pubkey.newUnique();
     const addr3 = Pubkey.newUnique();
+    //std.debug.print("addr1: {}\naddr2: {}\naddr3: {}\n", .{ addr1, addr2, addr3 });
 
     try testing.expect(!addr1.equals(&addr2));
     try testing.expect(!addr2.equals(&addr3));
