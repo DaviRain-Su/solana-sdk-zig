@@ -40,7 +40,9 @@ pub const Pubkey = extern struct {
     }
 
     pub fn comptimeFromBase58(comptime encoded: []const u8) Pubkey {
-        return Pubkey.fromBytes(base58.bitcoin.comptimeDecode(encoded));
+        comptime {
+            return Pubkey.fromBytes(base58.bitcoin.comptimeDecode(encoded));
+        }
     }
 
     pub fn comptimeCreateProgramAddress(comptime seeds: anytype, comptime program_id: Pubkey) Pubkey {
@@ -62,7 +64,7 @@ pub const Pubkey = extern struct {
     pub fn initRandom(random: std.Random) Pubkey {
         var bytes: [SIZE]u8 = undefined;
         random.bytes(&bytes);
-        return .{ .data = bytes };
+        return .{ .bytes = bytes };
     }
 
     /// Create a Pubkey from a byte slice
@@ -100,7 +102,7 @@ pub const Pubkey = extern struct {
     }
 
     pub fn base58String(self: Pubkey) Base58String {
-        return BASE58_ENDEC.encodeArray(SIZE, self.data);
+        return BASE58_ENDEC.encodeArray(SIZE, self.bytes);
     }
 
     /// Format for printing (implements std.fmt)
@@ -184,7 +186,7 @@ pub const Pubkey = extern struct {
         };
 
         if (decoded.len != SIZE) return error.InvalidLength;
-        return .{ .data = decoded.constSlice()[0..SIZE].* };
+        return .{ .bytes = decoded.constSlice()[0..SIZE].* };
     }
 
     /// Check if pubkey is on the ed25519 curve
@@ -267,7 +269,7 @@ pub const Pubkey = extern struct {
         hasher.update("ProgramDerivedAddress");
         hasher.final(&address.bytes);
 
-        if (address.isPointOnCurve()) {
+        if (address.isOnCurve()) {
             return error.InvalidSeeds;
         }
 
@@ -411,7 +413,7 @@ test "pubkey equals" {
     const key1 = Pubkey.fromBytes(.{1} ** 32);
     const key2 = Pubkey.fromBytes(.{1} ** 32);
     const key3 = Pubkey.fromBytes(.{2} ** 32);
-    //std.debug.print("key1: {}\nkey2: {}\nkey3: {}\n", .{ key1, key2, key3 });
+
     try std.testing.expect(key1.equals(&key2));
     try std.testing.expect(!key1.equals(&key3));
 }
@@ -419,14 +421,122 @@ test "pubkey equals" {
 test "pubkey from slice" {
     const bytes = [_]u8{3} ** 32;
     const key = try Pubkey.fromSlice(&bytes);
-    //std.debug.print("key: {}\n", .{key});
+
     try std.testing.expect(key.bytes[0] == 3);
     try std.testing.expect(key.bytes[31] == 3);
 }
 
-test "pubkey default" {
+test "pubkey is zeroes" {
     const key = Pubkey.ZEROES;
-    //std.debug.print("key: {}\n", .{key});
+
     try std.testing.expect(key.bytes[0] == 0);
     try std.testing.expect(key.bytes[31] == 0);
+}
+
+test "pubkey fromBytes and equals" {
+    const bytes1 = [_]u8{42} ** 32;
+    const bytes2 = [_]u8{42} ** 32;
+    const bytes3 = [_]u8{24} ** 32;
+
+    const key1 = Pubkey.fromBytes(bytes1);
+    const key2 = Pubkey.fromBytes(bytes2);
+    const key3 = Pubkey.fromBytes(bytes3);
+
+    try std.testing.expect(key1.equals(&key2));
+    try std.testing.expect(!key1.equals(&key3));
+}
+
+test "pubkey isZeroed" {
+    const zero_key = Pubkey.ZEROES;
+    const non_zero_key = Pubkey.fromBytes([_]u8{1} ** 32);
+
+    try std.testing.expect(zero_key.isZeroed());
+    try std.testing.expect(!non_zero_key.isZeroed());
+}
+
+test "pubkey order comparison" {
+    const key1 = Pubkey.fromBytes([_]u8{1} ** 32);
+    const key2 = Pubkey.fromBytes([_]u8{2} ** 32);
+    const key3 = Pubkey.fromBytes([_]u8{1} ** 32);
+
+    try std.testing.expectEqual(std.math.Order.lt, key1.order(key2));
+    try std.testing.expectEqual(std.math.Order.gt, key2.order(key1));
+    try std.testing.expectEqual(std.math.Order.eq, key1.order(key3));
+}
+
+test "pubkey base58 string conversion" {
+    const key = Pubkey.fromBytes([_]u8{1} ** 32);
+
+    // Test toString with buffer
+    var buf: [MAX_BASE58_LEN]u8 = undefined;
+    const str = try key.toString(&buf);
+    try std.testing.expect(str.len > 0);
+    try std.testing.expect(str.len <= MAX_BASE58_LEN);
+
+    // Test parsing back from string
+    const parsed = try Pubkey.fromString(str);
+    try std.testing.expect(parsed.equals(&key));
+}
+
+test "pubkey toStringAlloc" {
+    const allocator = std.testing.allocator;
+    const key = Pubkey.fromBytes([_]u8{255} ** 32);
+
+    const str = try key.toStringAlloc(allocator);
+    defer allocator.free(str);
+
+    try std.testing.expect(str.len > 0);
+    try std.testing.expect(str.len <= MAX_BASE58_LEN);
+
+    // Verify it can be parsed back
+    const parsed = try Pubkey.fromString(str);
+    try std.testing.expect(parsed.equals(&key));
+}
+
+test "pubkey fromString with invalid input" {
+    // Test with invalid base58 characters
+    const result1 = Pubkey.fromString("invalid!@#$");
+    try std.testing.expectError(error.InvalidCharacter, result1);
+
+    // Test with wrong length - this will actually decode to some bytes, just not 32
+    // The base58 decode doesn't fail, but the length check does
+    // Skip this specific test for now as it needs more investigation
+    const result2 = Pubkey.fromString("111111111111111"); // Too short
+    try std.testing.expectError(error.InvalidPubkey, result2);
+}
+
+test "pubkey indexIn" {
+    const key1 = Pubkey.fromBytes([_]u8{1} ** 32);
+    const key2 = Pubkey.fromBytes([_]u8{2} ** 32);
+    const key3 = Pubkey.fromBytes([_]u8{3} ** 32);
+    const key4 = Pubkey.fromBytes([_]u8{4} ** 32);
+
+    const pubkeys = [_]Pubkey{ key1, key2, key3 };
+
+    try std.testing.expectEqual(@as(?usize, 0), key1.indexIn(&pubkeys));
+    try std.testing.expectEqual(@as(?usize, 1), key2.indexIn(&pubkeys));
+    try std.testing.expectEqual(@as(?usize, 2), key3.indexIn(&pubkeys));
+    try std.testing.expectEqual(@as(?usize, null), key4.indexIn(&pubkeys));
+}
+
+test "pubkey system program constants" {
+    // Test that system program IDs are valid
+    try std.testing.expect(SYSTEM_PROGRAM_ID.bytes[0] == 0);
+    try std.testing.expect(SYSTEM_PROGRAM_ID.isZeroed());
+
+    // Token program should not be zero
+    try std.testing.expect(!TOKEN_PROGRAM_ID.isZeroed());
+    try std.testing.expect(!ASSOCIATED_TOKEN_PROGRAM_ID.isZeroed());
+}
+
+test "pubkey format display" {
+    const key = Pubkey.fromBytes([_]u8{1} ** 32);
+
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try stream.writer().print("{}", .{key});
+
+    const output = stream.getWritten();
+    try std.testing.expect(output.len > 0);
+    try std.testing.expect(output.len <= MAX_BASE58_LEN);
 }
