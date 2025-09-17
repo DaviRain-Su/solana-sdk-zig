@@ -320,32 +320,17 @@ pub const Pubkey = extern struct {
             var address: Pubkey = undefined;
 
             if (bpf.is_bpf_program) {
-                const Syscall = struct {
-                    extern fn sol_create_program_address(
-                        seeds_ptr: [*]const []const u8,
-                        seeds_len: u64,
-                        program_id_ptr: *const Pubkey,
-                        address_ptr: *Pubkey,
-                    ) callconv(.C) u64;
-                };
-
                 var seeds_array: [seeds.len][]const u8 = undefined;
                 inline for (seeds, 0..) |seed, i| seeds_array[i] = seed;
 
-                const result = Syscall.sol_create_program_address(
-                    &seeds_array,
-                    seeds.len,
-                    &program_id,
-                    &address,
-                );
-                if (result != 0) {
-                    log.print("failed to create program address with seeds {any} and program id {}: error code {}", .{
+                syscalls.createProgramAddress(&seeds_array, &program_id, &address) catch |err| {
+                    log.print("failed to create program address with seeds {any} and program id {}: error {}", .{
                         seeds,
                         program_id,
-                        result,
+                        err,
                     });
-                    return error.Unexpected;
-                }
+                    return err;
+                };
 
                 return address;
             }
@@ -381,29 +366,14 @@ pub const Pubkey = extern struct {
             var address: Pubkey = undefined;
 
             if (bpf.is_bpf_program) {
-                const Syscall = struct {
-                    extern fn sol_create_program_address(
-                        seeds_ptr: [*]const []const u8,
-                        seeds_len: u64,
-                        program_id_ptr: *const Pubkey,
-                        address_ptr: *Pubkey,
-                    ) callconv(.C) u64;
-                };
-
-                const result = Syscall.sol_create_program_address(
-                    seeds.ptr,
-                    seeds.len,
-                    &program_id,
-                    &address,
-                );
-                if (result != 0) {
-                    log.print("failed to create program address with seeds {any} and program id {}: error code {}", .{
+                syscalls.createProgramAddress(seeds, &program_id, &address) catch |err| {
+                    log.print("failed to create program address with seeds {any} and program id {}: error {}", .{
                         seeds,
                         program_id,
-                        result,
+                        err,
                     });
-                    return error.Unexpected;
-                }
+                    return err;
+                };
 
                 return address;
             }
@@ -431,16 +401,6 @@ pub const Pubkey = extern struct {
         var pda: ProgramDerivedAddress = undefined;
 
         if (comptime bpf.is_bpf_program) {
-            const Syscall = struct {
-                extern fn sol_try_find_program_address(
-                    seeds_ptr: [*]const []const u8,
-                    seeds_len: u64,
-                    program_id_ptr: *const Pubkey,
-                    address_ptr: *Pubkey,
-                    bump_seed_ptr: *u8,
-                ) callconv(.C) u64;
-            };
-
             var seeds_array: [seeds.len][]const u8 = undefined;
 
             comptime var seeds_index = 0;
@@ -453,21 +413,14 @@ pub const Pubkey = extern struct {
                 }
             }
 
-            const result = Syscall.sol_try_find_program_address(
-                &seeds_array,
-                seeds.len,
-                &program_id,
-                &pda.address,
-                &pda.bump_seed[0],
-            );
-            if (result != 0) {
-                log.print("failed to find program address given seeds {any} and program id {}: error code {}", .{
+            syscalls.tryFindProgramAddress(&seeds_array, &program_id, &pda.address, &pda.bump_seed[0]) catch |err| {
+                log.print("failed to find program address given seeds {any} and program id {}: error {}", .{
                     seeds,
                     program_id,
-                    result,
+                    err,
                 });
-                return error.Unexpected;
-            }
+                return err;
+            };
 
             return pda;
         }

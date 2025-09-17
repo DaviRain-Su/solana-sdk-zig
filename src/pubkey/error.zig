@@ -29,12 +29,12 @@ pub fn addressErrorToU64(err: AddressError) u64 {
 }
 
 /// Convert u64 to AddressError
-pub fn u64ToAddressError(code: u64) !AddressError {
+pub fn u64ToAddressError(code: u64) AddressError {
     return switch (code) {
         0 => error.MaxSeedLengthExceeded,
         1 => error.InvalidSeeds,
         2 => error.IllegalOwner,
-        else => error.InvalidErrorCode,
+        else => @panic("Invalid error code, Is not a valid AddressError"),
     };
 }
 

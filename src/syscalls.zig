@@ -573,3 +573,172 @@ pub inline fn invokeSigned(
         return error.InvokeSignedFailed;
     }
 }
+
+// ============================================================================
+// Additional Curve Operation Wrappers
+// ============================================================================
+
+/// Curve multiscalar multiplication
+pub inline fn curveMultiscalarMul(
+    curve_id: CurveId,
+    scalars: []const u8,
+    points: []const u8,
+    points_len: u64,
+    result: []u8,
+) !void {
+    const ret = sol_curve_multiscalar_mul(
+        @intFromEnum(curve_id),
+        scalars.ptr,
+        points.ptr,
+        points_len,
+        result.ptr,
+    );
+    if (ret != SUCCESS) return error.CurveMultiscalarMulFailed;
+}
+
+/// Curve pairing map
+pub inline fn curvePairingMap(
+    curve_id: CurveId,
+    point: []const u8,
+    result: []u8,
+) !void {
+    const ret = sol_curve_pairing_map(
+        @intFromEnum(curve_id),
+        point.ptr,
+        result.ptr,
+    );
+    if (ret != SUCCESS) return error.CurvePairingMapFailed;
+}
+
+/// ALT BN128 group operation
+pub inline fn altBn128GroupOp(
+    op: AltBn128GroupOp,
+    input: []const u8,
+    result: []u8,
+) !void {
+    const ret = sol_alt_bn128_group_op(
+        @intFromEnum(op),
+        input.ptr,
+        input.len,
+        result.ptr,
+    );
+    if (ret != SUCCESS) return error.AltBn128GroupOpFailed;
+}
+
+/// ALT BN128 compression operation
+pub inline fn altBn128Compression(
+    op: AltBn128Compression,
+    input: []const u8,
+    result: []u8,
+) !void {
+    const ret = sol_alt_bn128_compression(
+        @intFromEnum(op),
+        input.ptr,
+        input.len,
+        result.ptr,
+    );
+    if (ret != SUCCESS) return error.AltBn128CompressionFailed;
+}
+
+// ============================================================================
+// Processed Instruction Wrapper
+// ============================================================================
+
+/// Get processed sibling instruction
+pub inline fn getProcessedSiblingInstruction(index: u64, result: []u8) !void {
+    const ret = sol_get_processed_sibling_instruction(index, result.ptr);
+    if (ret != SUCCESS) return error.GetProcessedSiblingInstructionFailed;
+}
+
+// ============================================================================
+// Additional Sysvar Wrappers
+// ============================================================================
+
+/// Fees sysvar structure
+pub const Fees = extern struct {
+    fee_calculator: FeeCalculator,
+};
+
+pub const FeeCalculator = extern struct {
+    lamports_per_signature: u64,
+};
+
+/// EpochRewards sysvar structure
+pub const EpochRewards = extern struct {
+    distribution_starting_block_height: u64,
+    num_partitions: u64,
+    parent_blockhash: [32]u8,
+    total_points: u128,
+    total_rewards: u64,
+    distributed_rewards: u64,
+    active: bool,
+};
+
+/// Get fees sysvar
+pub inline fn getFees() !Fees {
+    var fees: Fees = undefined;
+    const result = sol_get_fees_sysvar(@ptrCast(&fees));
+    if (result != SUCCESS) return error.GetFeesFailed;
+    return fees;
+}
+
+/// Get epoch rewards sysvar
+pub inline fn getEpochRewards() !EpochRewards {
+    var rewards: EpochRewards = undefined;
+    const result = sol_get_epoch_rewards_sysvar(@ptrCast(&rewards));
+    if (result != SUCCESS) return error.GetEpochRewardsFailed;
+    return rewards;
+}
+
+// ============================================================================
+// Utility Helper Functions
+// ============================================================================
+
+/// Check if a syscall was successful
+pub inline fn checkSuccess(result: u64) !void {
+    if (result != SUCCESS) {
+        return error.SyscallFailed;
+    }
+}
+
+/// Convert error code to error
+pub inline fn convertError(result: u64) !void {
+    return switch (result) {
+        SUCCESS => {},
+        1 => error.InvalidArgument,
+        2 => error.InvalidSeeds,
+        3 => error.InvalidOwner,
+        else => error.UnknownError,
+    };
+}
+
+// ============================================================================
+// Debug Helper Functions
+// ============================================================================
+
+/// Log a formatted string with values
+pub fn logFormatted(comptime fmt: []const u8, args: anytype) void {
+    var buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, fmt, args) catch "log format error";
+    log(msg);
+}
+
+/// Log multiple pubkeys
+pub fn logPubkeys(keys: []const Pubkey) void {
+    for (keys) |key| {
+        logPubkey(&key);
+    }
+}
+
+/// Panic with a message (for debugging)
+pub fn panic(message: []const u8) noreturn {
+    log(message);
+    @panic(message);
+}
+
+/// Assert with message
+pub inline fn assert(condition: bool, message: []const u8) void {
+    if (!condition) {
+        panic(message);
+    }
+}

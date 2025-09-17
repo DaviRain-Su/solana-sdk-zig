@@ -30,7 +30,7 @@ pub fn createWithSeed(
     // Check for illegal owner (PDA marker check)
     const owner_bytes = owner.bytes;
     if (owner_bytes.len >= PDA_MARKER.len) {
-        const slice = owner_bytes[owner_bytes.len - PDA_MARKER.len..];
+        const slice = owner_bytes[owner_bytes.len - PDA_MARKER.len ..];
         if (std.mem.eql(u8, slice, PDA_MARKER)) {
             return AddressError.IllegalOwner;
         }
@@ -88,6 +88,19 @@ pub fn tryFindProgramAddress(
     seeds: []const []const u8,
     program_id: *const Pubkey,
 ) ?struct { pubkey: Pubkey, bump: u8 } {
+    // Use syscall when running in BPF for efficiency
+    if (bpf.is_bpf_program) {
+        var address: Pubkey = undefined;
+        var bump_seed: u8 = undefined;
+
+        syscalls.tryFindProgramAddress(seeds, program_id, &address, &bump_seed) catch {
+            return null;
+        };
+
+        return .{ .pubkey = address, .bump = bump_seed };
+    }
+
+    // Fallback implementation for non-BPF environments
     var bump: u8 = 255;
     while (true) {
         const bump_seed = [_]u8{bump};
@@ -101,7 +114,7 @@ pub fn tryFindProgramAddress(
         }
         seeds_with_bump[seeds.len] = &bump_seed;
 
-        const seeds_final = seeds_with_bump[0..seeds.len + 1];
+        const seeds_final = seeds_with_bump[0 .. seeds.len + 1];
 
         // Try to create program address
         const result = Pubkey.createProgramAddress(seeds_final, program_id.*);
@@ -128,8 +141,8 @@ pub fn isOnCurve(pubkey: *const Pubkey) bool {
 /// Log a pubkey to the console (for debugging in BPF programs)
 pub fn log(pubkey: *const Pubkey) void {
     if (bpf.is_bpf_program) {
-        // Use syscall to log the pubkey
-        syscalls.sol_log_pubkey(&pubkey.bytes);
+        // Use syscall wrapper to log the pubkey
+        syscalls.logPubkey(pubkey);
     } else {
         // For testing, don't print to avoid test output issues
         // Just validate that the pubkey can be converted to string
