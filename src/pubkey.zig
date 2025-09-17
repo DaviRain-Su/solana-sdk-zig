@@ -2,6 +2,8 @@ const std = @import("std");
 const base58 = @import("base58");
 const bpf = @import("bpf.zig");
 const log = @import("log.zig");
+const syscalls = @import("syscalls.zig");
+const ProgramError = @import("program_error.zig").ProgramError;
 
 const BASE58_ENDEC = base58.Table.BITCOIN;
 
@@ -11,6 +13,15 @@ pub const Base58String = std.BoundedArray(u8, MAX_BASE58_LEN);
 
 /// The size of a public key in bytes
 pub const PUBKEY_BYTES: usize = 32;
+
+/// Maximum length of derived Pubkey seed
+pub const MAX_SEED_LEN: usize = 32;
+
+/// Maximum number of seeds
+pub const MAX_SEEDS: usize = 16;
+
+/// The marker used to derive program derived addresses
+pub const PDA_MARKER: []const u8 = "ProgramDerivedAddress";
 
 pub const ProgramDerivedAddress = struct {
     address: Pubkey,

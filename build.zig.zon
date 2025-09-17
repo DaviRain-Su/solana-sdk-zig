@@ -1,7 +1,7 @@
 .{
-    .name = .pinocchio_zig,
+    .name = .solana_sdk_zig,
     .version = "0.1.0",
-    .fingerprint = 0x389efe8e8d1a9df0,
+    .fingerprint = 0xd7e2dfccb2978eb1,
     .minimum_zig_version = "0.13.0",
     .dependencies = .{
         .base58 = .{
