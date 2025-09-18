@@ -1,0 +1,15 @@
+.{
+    .name = "solana-sdk-examples",
+    .version = "0.1.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "msg_example.zig",
+    },
+    .dependencies = .{
+        .base58 = .{
+            .url = "https://github.com/Syndica/base58-zig/archive/refs/heads/main.tar.gz",
+            .hash = "1220a14935a7dca3dddd25e00e19c1dc65283f7e1e07e1e06c43ca96b7cbcdfbb623",
+        },
+    },
+}

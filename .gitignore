@@ -2,5 +2,6 @@ zig-out
 .zig-cache
 solana-zig
 solana-sdk
+solana-sdk-rust
 anchor
 target

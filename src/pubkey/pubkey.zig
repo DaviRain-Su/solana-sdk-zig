@@ -1,7 +1,7 @@
 const std = @import("std");
 const base58 = @import("base58");
 const bpf = @import("../bpf.zig");
-const log = @import("../log.zig");
+const msg = @import("../msg/msg.zig");
 const syscalls = @import("../syscalls.zig");
 const ProgramError = @import("../program_error.zig").ProgramError;
 
@@ -390,7 +390,7 @@ pub const Pubkey = extern struct {
 
         if (bpf.is_bpf_program) {
             syscalls.createProgramAddress(seeds, &program_id, &address) catch |err| {
-                log.print("failed to create program address with seeds {any} and program id {}: error {}", .{
+                msg.print("failed to create program address with seeds {any} and program id {}: error {}", .{
                     seeds,
                     program_id,
                     err,
@@ -425,7 +425,7 @@ pub const Pubkey = extern struct {
 
         if (bpf.is_bpf_program) {
             syscalls.tryFindProgramAddress(seeds, &program_id, &pda.address, &pda.bump_seed[0]) catch |err| {
-                log.print("failed to find program address given seeds {any} and program id {}: error {}", .{
+                msg.print("failed to find program address given seeds {any} and program id {}: error {}", .{
                     seeds,
                     program_id,
                     err,

@@ -10,7 +10,7 @@ pub const instruction = @import("instruction.zig");
 pub const program_error = @import("program_error.zig");
 pub const syscalls = @import("syscalls.zig");
 pub const bpf = @import("bpf.zig");
-pub const log = @import("log.zig");
+pub const msg = @import("msg/msg.zig");
 
 // Re-export common types
 pub const Pubkey = pubkey.Pubkey;
@@ -42,9 +42,24 @@ pub const toErrorCode = program_error.toErrorCode;
 pub const resultToU64 = program_error.resultToU64;
 pub const fromAccount = account_info.fromAccount;
 
-// Re-export log functions
-pub const msg = log.msg;
-pub const print = log.print;
+// Re-export msg functions (Rust-compatible and legacy-compatible)
+// Legacy log.zig compatibility
+pub const log = msg.log;
+pub const print = msg.print;
+pub const logComputeUnits = msg.logComputeUnits;
+pub const logData = msg.logData;
+
+// Rust-compatible msg functions
+pub const msgFunc = msg.msg;
+pub const msgf = msg.msgf;
+pub const msg64 = msg.msg64;
+pub const msgPubkey = msg.msgPubkey;
+pub const msgComputeUnits = msg.msgComputeUnits;
+pub const msgData = msg.msgData;
+pub const msgHex = msg.msgHex;
+pub const msgPanic = msg.msgPanic;
+pub const msgAssert = msg.msgAssert;
+pub const msgError = msg.msgError;
 
 // Re-export syscall helpers
 pub const sha256 = syscalls.sha256;
