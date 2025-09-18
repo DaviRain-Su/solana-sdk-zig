@@ -5,7 +5,7 @@ const std = @import("std");
 
 // Core modules
 pub const pubkey = @import("pubkey/pubkey.zig");
-pub const account_info = @import("account_info.zig");
+pub const account_info = @import("account_info/account_info.zig");
 pub const instruction = @import("instruction.zig");
 pub const program_error = @import("program_error.zig");
 pub const syscalls = @import("syscalls.zig");

@@ -1,5 +1,5 @@
 const std = @import("std");
-const Pubkey = @import("pubkey/pubkey.zig").Pubkey;
+const Pubkey = @import("../pubkey/pubkey.zig").Pubkey;
 
 /// Maximum number of bytes a program may add to an account during a single instruction
 pub const MAX_PERMITTED_DATA_INCREASE: usize = 1_024 * 10;
