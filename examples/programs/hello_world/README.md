@@ -1,6 +1,6 @@
 # Hello World Solana Program in Zig
 
-A simple Solana program demonstrating basic functionality using Pinocchio-Zig.
+A simple Solana program demonstrating basic functionality using solana-sdk-Zig.
 
 ## Features
 

@@ -141,7 +141,6 @@ fn processInitialize(
     const required_space = @sizeOf(GreetingAccount);
     const account_data = account.getData();
 
-
     if (account_data.len < required_space) {
         msg.msgf("Error: Account too small. Need {} bytes, got {}", .{ required_space, account_data.len });
         return ProgramError.AccountDataTooSmall;
