@@ -74,6 +74,16 @@ pub fn process_instruction(
 ) ProgramResult {
     msg.msg("Hello World Program - Entry Point");
 
+    // Debug: Log instruction data details
+    msg.msgf("Instruction data length: {}", .{instruction_data.len});
+    if (instruction_data.len > 0) {
+        msg.msgf("First byte: {} (0x{x})", .{ instruction_data[0], instruction_data[0] });
+        if (instruction_data.len > 1) {
+            msg.msgf("Second byte: {} (0x{x})", .{ instruction_data[1], instruction_data[1] });
+        }
+    }
+    msg.msgf("Number of accounts: {}", .{accounts.len});
+
     // Parse instruction type
     if (instruction_data.len == 0) {
         msg.msg("Error: No instruction data provided");
@@ -130,6 +140,8 @@ fn processInitialize(
     // Check account has enough space
     const required_space = @sizeOf(GreetingAccount);
     const account_data = account.getData();
+
+
     if (account_data.len < required_space) {
         msg.msgf("Error: Account too small. Need {} bytes, got {}", .{ required_space, account_data.len });
         return ProgramError.AccountDataTooSmall;

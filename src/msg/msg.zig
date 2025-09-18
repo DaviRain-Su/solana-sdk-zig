@@ -263,10 +263,12 @@ pub fn msgError(context: []const u8, err: anyerror) void {
 
 /// Check if we're running on Solana
 inline fn isSolana() bool {
-    const arch = @import("builtin").target.cpu.arch;
-    // Check for BPF/SBF architectures
-    return switch (arch) {
-        .bpfel, .bpfeb => true,
+    const builtin = @import("builtin");
+    // Check for Solana OS or BPF/SBF architectures
+    if (builtin.os.tag == .solana) return true;
+
+    return switch (builtin.target.cpu.arch) {
+        .bpfel, .bpfeb, .sbf => true,
         else => false,
     };
 }

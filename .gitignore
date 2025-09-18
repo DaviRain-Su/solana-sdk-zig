@@ -5,3 +5,4 @@ solana-sdk
 solana-sdk-rust
 anchor
 target
+node_modules

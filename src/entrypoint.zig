@@ -18,6 +18,9 @@ const ProgramResult = program_error.ProgramResult;
 /// Note: Reduced from 64 to 16 to fit within Solana's stack limit
 pub const MAX_ACCOUNTS = 16;
 
+/// Account data padding - Solana adds 10KB padding after account data
+pub const ACCOUNT_DATA_PADDING = 10 * 1024;
+
 /// Process instruction function type
 pub const ProcessInstruction = fn (
     program_id: *const Pubkey,
@@ -26,7 +29,11 @@ pub const ProcessInstruction = fn (
 ) ProgramResult;
 
 /// Raw input parser - parses the input buffer from Solana runtime
-pub fn parseInput(input: [*]const u8) struct {
+pub fn parseInput(
+    input: [*]const u8,
+    accounts_buf: *[MAX_ACCOUNTS]AccountInfo,
+    account_data_buf: *[MAX_ACCOUNTS]AccountData,
+) struct {
     accounts: []AccountInfo,
     num_accounts: usize,
     instruction_data: []const u8,
@@ -34,81 +41,81 @@ pub fn parseInput(input: [*]const u8) struct {
 } {
     var offset: usize = 0;
 
-    // Read number of accounts (u64)
-    const num_accounts = @as(*const u64, @ptrCast(@alignCast(input + offset))).*;
+    // Read number of accounts (u64) - unaligned read
+    const num_accounts = std.mem.readInt(u64, input[offset..][0..8], .little);
     offset += 8;
-
-    // We'll store account infos in a static buffer
-    // In a real implementation, these would be allocated properly
-    var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
-    var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
 
     // Parse each account
     for (0..num_accounts) |i| {
-        const is_duplicate = input[offset];
+        const dup_info = input[offset];
         offset += 1;
 
-        if (is_duplicate != 0) {
+        if (dup_info != 0xFF) {
             // This is a duplicate account
-            const duplicate_index = input[offset];
-            offset += 1;
-
-            // Copy the reference
-            accounts_buf[i] = accounts_buf[duplicate_index];
-            account_data_buf[i] = account_data_buf[duplicate_index];
+            offset += 7; // padding
+            accounts_buf[i] = accounts_buf[dup_info];
+            account_data_buf[i] = account_data_buf[dup_info];
         } else {
-            // Parse full account info
-            var acc_data = &account_data_buf[i];
-
-            // Flags
-            acc_data.is_signer = input[offset];
+            // Parse account info
+            const is_signer = input[offset];
             offset += 1;
-            acc_data.is_writable = input[offset];
+            const is_writable = input[offset];
             offset += 1;
-            acc_data.is_executable = input[offset];
+            const is_executable = input[offset];
             offset += 1;
 
-            // Original data length (4 bytes)
-            acc_data.original_data_len = @as(*const u32, @ptrCast(@alignCast(input + offset))).*;
+            // Original data length (4 bytes) - skip padding
+            const original_data_len = std.mem.readInt(u32, input[offset..][0..4], .little);
             offset += 4;
 
             // Pubkey (32 bytes)
-            acc_data.id = @as(*const Pubkey, @ptrCast(@alignCast(input + offset))).*;
+            const key = @as(*align(1) const Pubkey, @ptrCast(input + offset));
             offset += 32;
 
             // Owner (32 bytes)
-            acc_data.owner_id = @as(*const Pubkey, @ptrCast(@alignCast(input + offset))).*;
+            const owner = @as(*align(1) const Pubkey, @ptrCast(input + offset));
             offset += 32;
 
             // Lamports (8 bytes)
-            acc_data.lamports = @as(*const u64, @ptrCast(@alignCast(input + offset))).*;
+            const lamports = std.mem.readInt(u64, input[offset..][0..8], .little);
             offset += 8;
 
             // Data length (8 bytes)
-            acc_data.data_len = @as(*const u64, @ptrCast(@alignCast(input + offset))).*;
+            const data_len = std.mem.readInt(u64, input[offset..][0..8], .little);
             offset += 8;
 
-            // Data pointer - this points to the actual data
-            const data_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(input + offset)));
-            offset += acc_data.data_len;
+            // Data pointer
+            const data_ptr = @as([*]u8, @constCast(input + offset));
 
-            // Padding to 8-byte alignment
-            const padding = (8 - (acc_data.data_len % 8)) % 8;
-            offset += padding;
+            // Skip data + padding + rent epoch
+            offset += data_len + ACCOUNT_DATA_PADDING + @sizeOf(u64);
 
-            // Skip rent epoch for now (8 bytes)
-            offset += 8;
+            // Align to BPF_ALIGN_OF_U128 (8 bytes)
+            const alignment_offset = @intFromPtr(input + offset) & 7;
+            if (alignment_offset != 0) {
+                offset += 8 - alignment_offset;
+            }
 
-            // Mark as not duplicate
-            acc_data.duplicate_index = 0xFF;
+            // Store account data
+            account_data_buf[i] = AccountData{
+                .duplicate_index = 0xFF,
+                .is_signer = is_signer,
+                .is_writable = is_writable,
+                .is_executable = is_executable,
+                .original_data_len = original_data_len,
+                .id = key.*,
+                .owner_id = owner.*,
+                .lamports = lamports,
+                .data_len = data_len,
+            };
 
             // Create AccountInfo
-            accounts_buf[i] = AccountInfo.fromDataPtr(acc_data, data_ptr);
+            accounts_buf[i] = AccountInfo.fromDataPtr(&account_data_buf[i], data_ptr);
         }
     }
 
-    // Parse instruction data length
-    const data_len = @as(*const u64, @ptrCast(@alignCast(input + offset))).*;
+    // Parse instruction data length - unaligned read
+    const data_len = std.mem.readInt(u64, input[offset..][0..8], .little);
     offset += 8;
 
     // Get instruction data slice
@@ -116,7 +123,7 @@ pub fn parseInput(input: [*]const u8) struct {
     offset += data_len;
 
     // Parse program ID
-    const program_id = @as(*const Pubkey, @ptrCast(@alignCast(input + offset)));
+    const program_id = @as(*align(1) const Pubkey, @ptrCast(input + offset));
 
     return .{
         .accounts = accounts_buf[0..num_accounts],
@@ -149,8 +156,12 @@ pub fn parseInput(input: [*]const u8) struct {
 pub fn declareEntrypoint(comptime process_instruction: ProcessInstruction) void {
     const S = struct {
         pub export fn entrypoint(input: [*]const u8) callconv(.C) u64 {
+            // Allocate buffers on the stack of the entrypoint function
+            var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
+            var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
+
             // Parse the input
-            const parsed = parseInput(input);
+            const parsed = parseInput(input, &accounts_buf, &account_data_buf);
 
             // Call the user's process instruction function
             const result = process_instruction(
