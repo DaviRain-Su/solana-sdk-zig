@@ -4,6 +4,7 @@
 /// equivalent to Rust's solana_msg crate
 const std = @import("std");
 const syscalls = @import("../syscalls.zig");
+const bpf = @import("../bpf.zig");
 const base58 = @import("base58");
 const BASE58_ENDEC = base58.Table.BITCOIN;
 
@@ -23,9 +24,9 @@ pub inline fn log(message: []const u8) void {
 /// msg("transaction complete");
 /// ```
 pub inline fn msg(message: []const u8) void {
-    if (isSolana()) {
+    if (bpf.is_solana) {
         syscalls.sol_log_(message.ptr, message.len);
-    } else if (shouldPrintDebug()) {
+    } else if (bpf.should_print_debug) {
         // In non-Solana environments, print to stderr for debugging (not in tests)
         // Only compile this for non-Solana targets
         if (@import("builtin").os.tag != .solana) {
@@ -85,9 +86,9 @@ pub fn msgf(comptime fmt: []const u8, args: anytype) void {
 /// msg64(@intFromPtr(ptr), size, offset, 0, 0);
 /// ```
 pub inline fn msg64(p0: u64, p1: u64, p2: u64, p3: u64, p4: u64) void {
-    if (isSolana()) {
+    if (bpf.is_solana) {
         syscalls.sol_log_64_(p0, p1, p2, p3, p4);
-    } else if (shouldPrintDebug()) {
+    } else if (bpf.should_print_debug) {
         if (@import("builtin").os.tag != .solana) {
             std.debug.print("u64 values: {} {} {} {} {}\n", .{ p0, p1, p2, p3, p4 });
         }
@@ -130,9 +131,9 @@ pub inline fn msgPubkey(key: anytype) void {
         },
     };
 
-    if (isSolana()) {
+    if (bpf.is_solana) {
         syscalls.sol_log_pubkey(@ptrCast(key_ptr));
-    } else if (shouldPrintDebug()) {
+    } else if (bpf.should_print_debug) {
         if (@import("builtin").os.tag != .solana) {
             var buf: [64]u8 = undefined;
             const encoded = base58Encode(key_ptr.*, &buf) catch "encoding error";
@@ -157,9 +158,9 @@ pub inline fn logComputeUnits() void {
 /// msgComputeUnits(); // See how many CUs were used
 /// ```
 pub inline fn msgComputeUnits() void {
-    if (isSolana()) {
+    if (bpf.is_solana) {
         syscalls.sol_log_compute_units_();
-    } else if (shouldPrintDebug()) {
+    } else if (bpf.should_print_debug) {
         if (@import("builtin").os.tag != .solana) {
             std.debug.print("Compute units logging not available outside Solana\n", .{});
         }
@@ -183,7 +184,7 @@ pub fn logData(data_slices: []const []const u8) void {
 /// msgData(&[_][]const u8{ &data1, &data2 });
 /// ```
 pub fn msgData(data_slices: []const []const u8) void {
-    if (isSolana()) {
+    if (bpf.is_solana) {
         const max_slices = 16;
         var data_ptrs: [max_slices][*]const u8 = undefined;
         const len = @min(data_slices.len, max_slices);
@@ -193,7 +194,7 @@ pub fn msgData(data_slices: []const []const u8) void {
         }
 
         syscalls.sol_log_data(@ptrCast(&data_ptrs), len);
-    } else if (shouldPrintDebug()) {
+    } else if (bpf.should_print_debug) {
         if (@import("builtin").os.tag != .solana) {
             std.debug.print("Data slices ({} items):\n", .{data_slices.len});
             for (data_slices, 0..) |slice, i| {
@@ -261,28 +262,10 @@ pub fn msgError(context: []const u8, err: anyerror) void {
     msgf("{s}: {s}", .{ context, @errorName(err) });
 }
 
-/// Check if we're running on Solana
-inline fn isSolana() bool {
-    const builtin = @import("builtin");
-    // Check for Solana OS or BPF/SBF architectures
-    if (builtin.os.tag == .solana) return true;
-
-    return switch (builtin.target.cpu.arch) {
-        .bpfel, .bpfeb, .sbf => true,
-        else => false,
-    };
-}
-
-/// Check if we should print debug messages
-inline fn shouldPrintDebug() bool {
-    const builtin = @import("builtin");
-    // In non-test mode, always print
-    if (!builtin.is_test) return true;
-
-    // In test mode, don't print by default
-    // This avoids the build_options dependency issue
-    return false;
-}
+// Platform detection moved to bpf.zig
+// Re-export for backward compatibility
+pub const is_solana = bpf.is_solana;
+const should_print_debug = bpf.should_print_debug;
 
 /// Base58 encoding for debug environments
 fn base58Encode(data: [32]u8, buf: []u8) ![]const u8 {

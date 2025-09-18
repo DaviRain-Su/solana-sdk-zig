@@ -28,8 +28,45 @@ pub fn getUpgradeableLoaderProgramDataId(program_id: Pubkey) !Pubkey {
     return pda.address;
 }
 
-pub const is_bpf_program = !builtin.is_test and
-    ((builtin.os.tag == .freestanding and
+/// Check if we're running on Solana
+/// This is the canonical way to detect Solana environment
+pub const is_solana = blk: {
+    // Not in test mode
+    if (builtin.is_test) break :blk false;
+
+    // Check for explicit Solana OS tag
+    if (builtin.os.tag == .solana) break :blk true;
+
+    // Check for SBF (Solana Binary Format)
+    if (builtin.cpu.arch == .sbf) break :blk true;
+
+    // Check for BPF with Solana features
+    if (builtin.os.tag == .freestanding and
         builtin.cpu.arch == .bpfel and
-        std.Target.bpf.featureSetHas(builtin.cpu.features, .solana)) or
-        builtin.cpu.arch == .sbf);
+        std.Target.bpf.featureSetHas(builtin.cpu.features, .solana))
+    {
+        break :blk true;
+    }
+
+    break :blk false;
+};
+
+/// Legacy alias for backward compatibility
+pub const is_bpf_program = is_solana;
+
+/// Check if we should print debug messages
+pub const should_print_debug = blk: {
+    // In non-test mode, always print (unless on Solana)
+    if (!builtin.is_test and !is_solana) break :blk true;
+    // In test mode or on Solana, don't print
+    break :blk false;
+};
+
+/// Check if we're in test mode
+pub const is_test = builtin.is_test;
+
+/// Check if we're building for BPF (any variant)
+pub const is_bpf = blk: {
+    const arch = builtin.cpu.arch;
+    break :blk arch == .bpfel or arch == .bpfeb or arch == .sbf;
+};

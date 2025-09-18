@@ -205,8 +205,8 @@ pub fn noOpProcessor(
 test "basic entrypoint parsing" {
     const testing = std.testing;
 
-    // Create a mock input buffer
-    var input_buffer = [_]u8{0} ** 512;
+    // Create a mock input buffer (needs to be large enough for ACCOUNT_DATA_PADDING)
+    var input_buffer = [_]u8{0} ** (512 + ACCOUNT_DATA_PADDING);
     var offset: usize = 0;
 
     // Number of accounts (u64) = 1
@@ -214,8 +214,8 @@ test "basic entrypoint parsing" {
     @memcpy(input_buffer[offset .. offset + 8], std.mem.asBytes(&num_accounts));
     offset += 8;
 
-    // Account 0 - not a duplicate
-    input_buffer[offset] = 0;
+    // Account 0 - not a duplicate (0xFF marker)
+    input_buffer[offset] = 0xFF;
     offset += 1;
 
     // Account flags
@@ -257,13 +257,19 @@ test "basic entrypoint parsing" {
     }
     offset += 10;
 
-    // Padding to 8-byte alignment
-    offset += 6; // (8 - (10 % 8)) = 6
+    // Account data padding (10KB)
+    offset += ACCOUNT_DATA_PADDING;
 
     // Rent epoch (u64)
     const rent_epoch: u64 = 100;
     @memcpy(input_buffer[offset .. offset + 8], std.mem.asBytes(&rent_epoch));
     offset += 8;
+
+    // Align to 8-byte boundary
+    const alignment_offset = @intFromPtr(&input_buffer[offset]) & 7;
+    if (alignment_offset != 0) {
+        offset += 8 - alignment_offset;
+    }
 
     // Instruction data length (u64)
     const ix_data_len: u64 = 4;
@@ -281,8 +287,12 @@ test "basic entrypoint parsing" {
     const program_pubkey = Pubkey.fromBytes([_]u8{3} ** 32);
     @memcpy(input_buffer[offset .. offset + 32], &program_pubkey.bytes);
 
+    // Allocate buffers for parsing
+    var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
+    var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
+
     // Parse the input
-    const parsed = parseInput(&input_buffer);
+    const parsed = parseInput(&input_buffer, &accounts_buf, &account_data_buf);
 
     // Verify parsing
     try testing.expectEqual(@as(usize, 1), parsed.num_accounts);
