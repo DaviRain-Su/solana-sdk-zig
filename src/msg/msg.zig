@@ -27,7 +27,10 @@ pub inline fn msg(message: []const u8) void {
         syscalls.sol_log_(message.ptr, message.len);
     } else if (shouldPrintDebug()) {
         // In non-Solana environments, print to stderr for debugging (not in tests)
-        std.debug.print("{s}\n", .{message});
+        // Only compile this for non-Solana targets
+        if (@import("builtin").os.tag != .solana) {
+            std.debug.print("{s}\n", .{message});
+        }
     }
 }
 
@@ -59,8 +62,8 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
 /// msgf("account {} balance: {}", .{account_index, balance});
 /// ```
 pub fn msgf(comptime fmt: []const u8, args: anytype) void {
-    // Stack buffer for formatted message
-    var buf: [512]u8 = undefined;
+    // Stack buffer for formatted message - keep small for Solana's limited stack
+    var buf: [256]u8 = undefined;
 
     const formatted = std.fmt.bufPrint(&buf, fmt, args) catch {
         // If formatting fails, log an error message instead
@@ -85,7 +88,9 @@ pub inline fn msg64(p0: u64, p1: u64, p2: u64, p3: u64, p4: u64) void {
     if (isSolana()) {
         syscalls.sol_log_64_(p0, p1, p2, p3, p4);
     } else if (shouldPrintDebug()) {
-        std.debug.print("u64 values: {} {} {} {} {}\n", .{ p0, p1, p2, p3, p4 });
+        if (@import("builtin").os.tag != .solana) {
+            std.debug.print("u64 values: {} {} {} {} {}\n", .{ p0, p1, p2, p3, p4 });
+        }
     }
 }
 
@@ -128,9 +133,11 @@ pub inline fn msgPubkey(key: anytype) void {
     if (isSolana()) {
         syscalls.sol_log_pubkey(@ptrCast(key_ptr));
     } else if (shouldPrintDebug()) {
-        var buf: [64]u8 = undefined;
-        const encoded = base58Encode(key_ptr.*, &buf) catch "encoding error";
-        std.debug.print("Pubkey: {s}\n", .{encoded});
+        if (@import("builtin").os.tag != .solana) {
+            var buf: [64]u8 = undefined;
+            const encoded = base58Encode(key_ptr.*, &buf) catch "encoding error";
+            std.debug.print("Pubkey: {s}\n", .{encoded});
+        }
     }
 }
 
@@ -153,7 +160,9 @@ pub inline fn msgComputeUnits() void {
     if (isSolana()) {
         syscalls.sol_log_compute_units_();
     } else if (shouldPrintDebug()) {
-        std.debug.print("Compute units logging not available outside Solana\n", .{});
+        if (@import("builtin").os.tag != .solana) {
+            std.debug.print("Compute units logging not available outside Solana\n", .{});
+        }
     }
 }
 
@@ -185,13 +194,15 @@ pub fn msgData(data_slices: []const []const u8) void {
 
         syscalls.sol_log_data(@ptrCast(&data_ptrs), len);
     } else if (shouldPrintDebug()) {
-        std.debug.print("Data slices ({} items):\n", .{data_slices.len});
-        for (data_slices, 0..) |slice, i| {
-            std.debug.print("  [{}]: ", .{i});
-            for (slice) |byte| {
-                std.debug.print("{x:0>2} ", .{byte});
+        if (@import("builtin").os.tag != .solana) {
+            std.debug.print("Data slices ({} items):\n", .{data_slices.len});
+            for (data_slices, 0..) |slice, i| {
+                std.debug.print("  [{}]: ", .{i});
+                for (slice) |byte| {
+                    std.debug.print("{x:0>2} ", .{byte});
+                }
+                std.debug.print("\n", .{});
             }
-            std.debug.print("\n", .{});
         }
     }
 }
@@ -266,11 +277,8 @@ inline fn shouldPrintDebug() bool {
     // In non-test mode, always print
     if (!builtin.is_test) return true;
 
-    // In test mode, check build options if available
-    const build_options = @import("build_options");
-    if (build_options.show_test_output) {
-        return true;
-    }
+    // In test mode, don't print by default
+    // This avoids the build_options dependency issue
     return false;
 }
 

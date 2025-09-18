@@ -209,15 +209,9 @@ test "verify Rust AccountData structure size" {
     try testing.expectEqual(@as(usize, 72), @intFromPtr(&dummy.lamports) - base);
     try testing.expectEqual(@as(usize, 80), @intFromPtr(&dummy.data_len) - base);
 
-    // Print debug info based on environment or build mode
+    // Print debug info based on build mode
     const builtin = @import("builtin");
-    var should_print = !builtin.is_test;
-
-    // Check build option in test mode
-    if (builtin.is_test) {
-        const build_options = @import("build_options");
-        should_print = build_options.show_test_output;
-    }
+    const should_print = !builtin.is_test;
 
     if (should_print) {
         std.debug.print("\n=== Rust Compatibility Test ===\n", .{});

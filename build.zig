@@ -68,13 +68,13 @@ pub fn build(b: *std.Build) void {
     // Add option to show test output
     const show_test_output = b.option(bool, "show-test-output", "Show debug output during tests") orelse false;
 
-    // Export self as a module
-    const pinocchio_mod = b.addModule("pinocchio", .{
+    // Also export as solana_sdk_zig for clarity
+    const sdk_mod = b.addModule("solana_sdk_zig", .{
         .root_source_file = b.path("src/root.zig"),
     });
 
     const lib = b.addStaticLibrary(.{
-        .name = "pinocchio",
+        .name = "solana_sdk_zig",
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
@@ -86,7 +86,7 @@ pub fn build(b: *std.Build) void {
     });
     const base58_mod = base58_dep.module("base58");
     lib.root_module.addImport("base58", base58_mod);
-    pinocchio_mod.addImport("base58", base58_mod);
+    sdk_mod.addImport("base58", base58_mod);
 
     b.installArtifact(lib);
 
@@ -131,12 +131,12 @@ pub fn build(b: *std.Build) void {
 // General helper function to do all the tricky build steps, by adding the
 // pinocchio module, adding the BPF link script
 pub fn buildProgram(b: *std.Build, program: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
-    const pinocchio_dep = b.dependency("pinocchio", .{
+    const pinocchio_dep = b.dependency("solana_sdk_zig", .{
         .target = target,
         .optimize = optimize,
     });
-    const pinocchio_mod = pinocchio_dep.module("pinocchio");
-    program.root_module.addImport("pinocchio", pinocchio_mod);
+    const pinocchio_mod = pinocchio_dep.module("solana_sdk_zig");
+    program.root_module.addImport("solana_sdk_zig", pinocchio_mod);
     linkSolanaProgram(b, program);
     return pinocchio_mod;
 }

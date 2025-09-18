@@ -2,6 +2,7 @@
 ///
 /// A lightweight alternative to solana-program, inspired by anza-xyz/pinocchio
 const std = @import("std");
+const sol = @This();
 
 // Core modules
 pub const pubkey = @import("pubkey/pubkey.zig");
@@ -11,6 +12,7 @@ pub const program_error = @import("program_error.zig");
 pub const syscalls = @import("syscalls.zig");
 pub const bpf = @import("bpf.zig");
 pub const msg = @import("msg/msg.zig");
+pub const entrypoint = @import("entrypoint.zig");
 
 // Re-export common types
 pub const Pubkey = pubkey.Pubkey;
@@ -21,6 +23,10 @@ pub const Instruction = instruction.Instruction;
 pub const CompiledInstruction = instruction.CompiledInstruction;
 pub const ProgramError = program_error.ProgramError;
 pub const ProgramResult = program_error.ProgramResult;
+
+// Re-export entrypoint types and functions
+pub const declareEntrypoint = entrypoint.declareEntrypoint;
+pub const ProcessInstruction = entrypoint.ProcessInstruction;
 
 // Re-export commonly used constants
 pub const SUCCESS = program_error.SUCCESS;
@@ -87,6 +93,20 @@ pub const isOnCurve = pubkey.extensions.isOnCurve;
 pub const PubkeyHashContext = pubkey.hasher.PubkeyHashContext;
 pub const AddressHasherBuilder = pubkey.hasher.AddressHasherBuilder;
 
+// Build configuration namespace
+pub const build = struct {
+    // Solana BPF/SBF target configurations
+    pub const sbf_target: std.Target.Query = .{
+        .cpu_arch = .sbf,
+        .os_tag = .solana,
+    };
+
+    pub const bpf_target: std.Target.Query = .{
+        .cpu_arch = .bpfel,
+        .os_tag = .freestanding,
+    };
+};
+
 test "pinocchio exports" {
     // Test that all exports are available
     _ = Pubkey;
@@ -103,5 +123,6 @@ test {
     _ = @import("msg/base58_test.zig");
     _ = @import("pubkey/hasher.zig");
     _ = @import("pubkey/error.zig");
+    _ = @import("entrypoint.zig");
     _ = @import("account_info/rust_compatibility_test.zig");
 }
