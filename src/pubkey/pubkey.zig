@@ -13,7 +13,7 @@ pub const errors = @import("error.zig");
 const AddressError = errors.AddressError;
 const ParseAddressError = errors.ParseAddressError;
 
-// Common System Program IDs
+// Common System Program IDs - computed at compile time for zero runtime cost
 pub const SYSTEM_PROGRAM_ID = Pubkey.parse("11111111111111111111111111111111");
 pub const TOKEN_PROGRAM_ID = Pubkey.parse("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 pub const ASSOCIATED_TOKEN_PROGRAM_ID = Pubkey.parse("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -24,7 +24,7 @@ pub const VOTE_PROGRAM_ID = Pubkey.parse("Vote1111111111111111111111111111111111
 pub const BPF_LOADER_PROGRAM_ID = Pubkey.parse("BPFLoader2111111111111111111111111111111111");
 pub const BPF_UPGRADEABLE_LOADER_PROGRAM_ID = Pubkey.parse("BPFLoaderUpgradeab1e11111111111111111111111");
 
-// More system program IDs
+// More system program IDs - computed at compile time
 pub const STAKE_CONFIG_PROGRAM_ID = Pubkey.parse("StakeConfig11111111111111111111111111111111");
 pub const SYSTEM_INSTRUCTION_PROGRAM_ID = SYSTEM_PROGRAM_ID;
 pub const FEATURE_PROGRAM_ID = Pubkey.parse("Feature111111111111111111111111111111111111");
@@ -72,7 +72,7 @@ pub const Pubkey = extern struct {
     }
 
     /// Create a Pubkey from a byte array
-    pub fn fromBytes(bytes: [PUBKEY_BYTES]u8) Pubkey {
+    pub inline fn fromBytes(bytes: [PUBKEY_BYTES]u8) Pubkey {
         return .{ .bytes = bytes };
     }
 
@@ -84,7 +84,7 @@ pub const Pubkey = extern struct {
 
     pub fn comptimeCreateProgramAddress(comptime seeds: []const []const u8, comptime program_id: Pubkey) Pubkey {
         comptime {
-            return Pubkey.createProgramAddress(&seeds, program_id) catch |err| {
+            return Pubkey.createProgramAddress(seeds, program_id) catch |err| {
                 @compileError("Failed to create program address: " ++ @errorName(err));
             };
         }
@@ -95,6 +95,36 @@ pub const Pubkey = extern struct {
             return Pubkey.findProgramAddress(seeds, program_id) catch |err| {
                 @compileError("Failed to find program address: " ++ @errorName(err));
             };
+        }
+    }
+
+    /// Comptime validation of seeds - ensures all seeds are valid at compile time
+    pub fn comptimeValidateSeeds(comptime seeds: []const []const u8) void {
+        comptime {
+            if (seeds.len > max_num_seeds) {
+                @compileError("Too many seeds: maximum is 16");
+            }
+            for (seeds, 0..) |seed, i| {
+                if (seed.len > max_seed_length) {
+                    @compileError(std.fmt.comptimePrint("Seed at index {} is too long: maximum length is 32", .{i}));
+                }
+            }
+        }
+    }
+
+    /// Create multiple PDAs at compile time for efficiency
+    /// This function uses findProgramAddress to ensure we always get valid off-curve addresses
+    pub fn comptimeCreateMultiplePDAs(
+        comptime seeds_list: []const []const []const u8,
+        comptime program_id: Pubkey,
+    ) [seeds_list.len]Pubkey {
+        comptime {
+            var pdas: [seeds_list.len]Pubkey = undefined;
+            for (seeds_list, 0..) |seeds, i| {
+                const result = comptimeFindProgramAddress(seeds, program_id);
+                pdas[i] = result.address;
+            }
+            return pdas;
         }
     }
 
@@ -203,7 +233,17 @@ pub const Pubkey = extern struct {
         return @reduce(.And, xx == yy);
     }
 
-    pub fn isZeroed(self: *const Pubkey) bool {
+    /// Comptime equality check
+    pub fn comptimeEquals(comptime self: Pubkey, comptime other: Pubkey) bool {
+        comptime {
+            for (self.bytes, other.bytes) |a, b| {
+                if (a != b) return false;
+            }
+            return true;
+        }
+    }
+
+    pub inline fn isZeroed(self: *const Pubkey) bool {
         return self.equals(&ZEROES);
     }
 
@@ -228,7 +268,7 @@ pub const Pubkey = extern struct {
     }
 
     /// Check if pubkey is on the ed25519 curve
-    pub fn isOnCurve(self: Pubkey) bool {
+    pub inline fn isOnCurve(self: Pubkey) bool {
         const Y = std.crypto.ecc.Curve25519.Fe.fromBytes(self.bytes);
         const Z = std.crypto.ecc.Curve25519.Fe.one;
         const YY = Y.sq();
@@ -289,13 +329,38 @@ pub const Pubkey = extern struct {
     }
 
     /// Get bytes array (matching Rust's to_bytes)
-    pub fn toBytes(self: Pubkey) [32]u8 {
+    pub inline fn toBytes(self: Pubkey) [32]u8 {
         return self.bytes;
     }
 
     /// Get reference to bytes array (matching Rust's as_array)
-    pub fn asArray(self: *const Pubkey) *const [32]u8 {
+    pub inline fn asArray(self: *const Pubkey) *const [32]u8 {
         return &self.bytes;
+    }
+
+    /// Build seeds array at compile time for PDA generation
+    pub fn comptimeBuildSeeds(comptime inputs: anytype) []const []const u8 {
+        comptime {
+            const fields = @typeInfo(@TypeOf(inputs)).Struct.fields;
+            var seeds: [fields.len][]const u8 = undefined;
+
+            for (fields, 0..) |field, i| {
+                const value = @field(inputs, field.name);
+                const T = @TypeOf(value);
+
+                if (T == Pubkey) {
+                    seeds[i] = &value.bytes;
+                } else if (T == []const u8 or T == *const [32]u8) {
+                    seeds[i] = value;
+                } else if (T == u8) {
+                    seeds[i] = &[_]u8{value};
+                } else {
+                    @compileError("Unsupported seed type: " ++ @typeName(T));
+                }
+            }
+
+            return &seeds;
+        }
     }
 
     fn sqrtRatioM1(u: std.crypto.ecc.Curve25519.Fe, v: std.crypto.ecc.Curve25519.Fe) u32 {
@@ -309,7 +374,7 @@ pub const Pubkey = extern struct {
         return @intFromBool(has_m_root) | @intFromBool(has_p_root);
     }
 
-    pub fn createProgramAddress(seeds: []const []const u8, program_id: Pubkey) !Pubkey {
+    pub inline fn createProgramAddress(seeds: []const []const u8, program_id: Pubkey) !Pubkey {
         // Validate input
         if (seeds.len > Pubkey.max_num_seeds) {
             return AddressError.MaxSeedLengthExceeded;
@@ -667,4 +732,49 @@ test "logPubkey function" {
     // Just test that it compiles and runs
     const key = Pubkey.newUnique();
     logPubkey(&key);
+}
+
+test "comptime optimizations" {
+    const testing = std.testing;
+
+    // Test comptime PDA validation
+    const valid_seeds = [_][]const u8{"test", "seed"};
+    Pubkey.comptimeValidateSeeds(&valid_seeds); // This will compile
+
+    // Test comptime equality
+    const key1 = Pubkey.parse("11111111111111111111111111111111");
+    const key2 = SYSTEM_PROGRAM_ID;
+    const are_equal = comptime key1.comptimeEquals(key2);
+    try testing.expect(are_equal);
+
+    // Test comptime PDA generation (computed at compile time)
+    // Use findProgramAddress to ensure we get a valid off-curve address
+    const comptime_found = comptime Pubkey.comptimeFindProgramAddress(
+        &[_][]const u8{"test-pda"},
+        BPF_UPGRADEABLE_LOADER_PROGRAM_ID
+    );
+
+    // Verify it matches runtime computation
+    const runtime_found = try Pubkey.findProgramAddress(
+        &[_][]const u8{"test-pda"},
+        BPF_UPGRADEABLE_LOADER_PROGRAM_ID
+    );
+    try testing.expect(comptime_found.address.equals(&runtime_found.address));
+    try testing.expectEqual(comptime_found.bump_seed[0], runtime_found.bump_seed[0]);
+
+    // Test comptime multiple PDAs
+    const pdas = comptime Pubkey.comptimeCreateMultiplePDAs(
+        &[_][]const []const u8{
+            &[_][]const u8{"vault"},
+            &[_][]const u8{"user"},
+            &[_][]const u8{"token"},
+        },
+        SYSTEM_PROGRAM_ID
+    );
+    try testing.expect(pdas.len == 3);
+
+    // All PDAs should be different
+    try testing.expect(!pdas[0].equals(&pdas[1]));
+    try testing.expect(!pdas[1].equals(&pdas[2]));
+    try testing.expect(!pdas[0].equals(&pdas[2]));
 }
