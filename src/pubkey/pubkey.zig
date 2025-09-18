@@ -6,20 +6,30 @@ const syscalls = @import("../syscalls.zig");
 const ProgramError = @import("../program_error.zig").ProgramError;
 
 // Re-export submodules
-pub const extensions = @import("extensions.zig");
 pub const hasher = @import("hasher.zig");
 pub const errors = @import("error.zig");
 
-// Re-export common system program IDs from extensions
-pub const SYSTEM_PROGRAM_ID = extensions.SYSTEM_PROGRAM_ID;
-pub const TOKEN_PROGRAM_ID = extensions.TOKEN_PROGRAM_ID;
-pub const ASSOCIATED_TOKEN_PROGRAM_ID = extensions.ASSOCIATED_TOKEN_PROGRAM_ID;
-pub const RENT_SYSVAR_ID = extensions.RENT_SYSVAR_ID;
-pub const CLOCK_SYSVAR_ID = extensions.CLOCK_SYSVAR_ID;
-pub const STAKE_PROGRAM_ID = extensions.STAKE_PROGRAM_ID;
-pub const VOTE_PROGRAM_ID = extensions.VOTE_PROGRAM_ID;
-pub const BPF_LOADER_PROGRAM_ID = extensions.BPF_LOADER_PROGRAM_ID;
-pub const BPF_UPGRADEABLE_LOADER_PROGRAM_ID = extensions.BPF_UPGRADEABLE_LOADER_PROGRAM_ID;
+// Import error types
+const AddressError = errors.AddressError;
+const ParseAddressError = errors.ParseAddressError;
+
+// Common System Program IDs
+pub const SYSTEM_PROGRAM_ID = Pubkey.parse("11111111111111111111111111111111");
+pub const TOKEN_PROGRAM_ID = Pubkey.parse("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+pub const ASSOCIATED_TOKEN_PROGRAM_ID = Pubkey.parse("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+pub const RENT_SYSVAR_ID = Pubkey.parse("SysvarRent111111111111111111111111111111111");
+pub const CLOCK_SYSVAR_ID = Pubkey.parse("SysvarC1ock11111111111111111111111111111111");
+pub const STAKE_PROGRAM_ID = Pubkey.parse("Stake11111111111111111111111111111111111111");
+pub const VOTE_PROGRAM_ID = Pubkey.parse("Vote111111111111111111111111111111111111111");
+pub const BPF_LOADER_PROGRAM_ID = Pubkey.parse("BPFLoader2111111111111111111111111111111111");
+pub const BPF_UPGRADEABLE_LOADER_PROGRAM_ID = Pubkey.parse("BPFLoaderUpgradeab1e11111111111111111111111");
+
+// More system program IDs
+pub const STAKE_CONFIG_PROGRAM_ID = Pubkey.parse("StakeConfig11111111111111111111111111111111");
+pub const SYSTEM_INSTRUCTION_PROGRAM_ID = SYSTEM_PROGRAM_ID;
+pub const FEATURE_PROGRAM_ID = Pubkey.parse("Feature111111111111111111111111111111111111");
+pub const CONFIG_PROGRAM_ID = Pubkey.parse("Config1111111111111111111111111111111111111");
+pub const SYSVAR_PROGRAM_ID = Pubkey.parse("Sysvar1111111111111111111111111111111111111");
 
 const BASE58_ENDEC = base58.Table.BITCOIN;
 
@@ -97,7 +107,7 @@ pub const Pubkey = extern struct {
     /// Create a Pubkey from a byte slice
     pub fn fromSlice(slice: []const u8) !Pubkey {
         if (slice.len != PUBKEY_BYTES) {
-            return error.InvalidPubkeyLength;
+            return ParseAddressError.WrongSize;
         }
         var bytes: [PUBKEY_BYTES]u8 = undefined;
         @memcpy(&bytes, slice);
@@ -109,7 +119,7 @@ pub const Pubkey = extern struct {
         var bytes: [PUBKEY_BYTES]u8 = undefined;
         const len = try BASE58_ENDEC.decode(&bytes, str);
         if (len != PUBKEY_BYTES) {
-            return error.InvalidPubkey;
+            return ParseAddressError.Invalid;
         }
         return .{ .bytes = bytes };
     }
@@ -165,8 +175,9 @@ pub const Pubkey = extern struct {
     ) std.json.ParseFromValueError!Pubkey {
         return switch (source) {
             .string => |str| parseRuntime(str) catch |err| switch (err) {
-                error.InvalidPubkey => error.InvalidCharacter,
-                error.InvalidLength => error.LengthMismatch,
+                ParseAddressError.Invalid => error.InvalidCharacter,
+                ParseAddressError.WrongSize => error.LengthMismatch,
+                else => error.UnexpectedToken,
             },
             else => error.UnexpectedToken,
         };
@@ -202,17 +213,17 @@ pub const Pubkey = extern struct {
         }
     }
 
-    pub fn parseRuntime(str: []const u8) error{ InvalidLength, InvalidPubkey }!Pubkey {
-        if (str.len > MAX_BASE58_LEN) return error.InvalidLength;
+    pub fn parseRuntime(str: []const u8) !Pubkey {
+        if (str.len > MAX_BASE58_LEN) return ParseAddressError.WrongSize;
         var encoded: std.BoundedArray(u8, MAX_BASE58_LEN) = .{};
         encoded.appendSliceAssumeCapacity(str);
 
         if (@inComptime()) @setEvalBranchQuota(str.len * str.len * str.len);
         const decoded = BASE58_ENDEC.decodeBounded(MAX_BASE58_LEN, encoded) catch {
-            return error.InvalidPubkey;
+            return ParseAddressError.Invalid;
         };
 
-        if (decoded.len != SIZE) return error.InvalidLength;
+        if (decoded.len != SIZE) return ParseAddressError.WrongSize;
         return .{ .bytes = decoded.constSlice()[0..SIZE].* };
     }
 
@@ -237,7 +248,7 @@ pub const Pubkey = extern struct {
     ) !Pubkey {
         // Check seed length
         if (seed.len > MAX_SEED_LEN) {
-            return error.MaxSeedLengthExceeded;
+            return AddressError.MaxSeedLengthExceeded;
         }
 
         // Check for illegal owner (PDA marker check)
@@ -245,7 +256,7 @@ pub const Pubkey = extern struct {
         if (owner_bytes.len >= PDA_MARKER.len) {
             const slice = owner_bytes[owner_bytes.len - PDA_MARKER.len ..];
             if (std.mem.eql(u8, slice, PDA_MARKER)) {
-                return error.IllegalOwner;
+                return AddressError.IllegalOwner;
             }
         }
 
@@ -301,12 +312,12 @@ pub const Pubkey = extern struct {
     pub fn createProgramAddress(seeds: []const []const u8, program_id: Pubkey) !Pubkey {
         // Validate input
         if (seeds.len > Pubkey.max_num_seeds) {
-            return error.MaxSeedLengthExceeded;
+            return AddressError.MaxSeedLengthExceeded;
         }
 
         for (seeds) |seed| {
             if (seed.len > Pubkey.max_seed_length) {
-                return error.MaxSeedLengthExceeded;
+                return AddressError.MaxSeedLengthExceeded;
             }
         }
 
@@ -337,7 +348,7 @@ pub const Pubkey = extern struct {
         h.final(&address.bytes);
 
         if (address.isOnCurve()) {
-            return error.InvalidSeeds;
+            return AddressError.InvalidSeeds;
         }
 
         return address;
@@ -362,7 +373,7 @@ pub const Pubkey = extern struct {
 
         // Fallback implementation for non-BPF environments
         if (seeds.len >= Pubkey.max_num_seeds) {
-            return error.MaxSeedLengthExceeded;
+            return AddressError.MaxSeedLengthExceeded;
         }
 
         var seeds_with_bump: [17][]const u8 = undefined;
@@ -378,7 +389,7 @@ pub const Pubkey = extern struct {
         while (pda.bump_seed[0] >= 0) : (pda.bump_seed[0] -= 1) {
             pda.address = Pubkey.createProgramAddress(seeds_final, program_id) catch {
                 if (pda.bump_seed[0] == 0) {
-                    return error.NoViableBumpSeed;
+                    return AddressError.InvalidSeeds;
                 }
                 continue;
             };
@@ -386,9 +397,43 @@ pub const Pubkey = extern struct {
             return pda;
         }
 
-        return error.NoViableBumpSeed;
+        return AddressError.InvalidSeeds;
     }
 };
+
+// ============================================================================
+// Additional functions from extensions module
+// ============================================================================
+
+/// Try to find a program address and bump seed
+/// Returns null if no valid address is found
+pub fn tryFindProgramAddress(
+    seeds: []const []const u8,
+    program_id: *const Pubkey,
+) ?struct { pubkey: Pubkey, bump: u8 } {
+    // Use the existing findProgramAddress implementation
+    const pda = Pubkey.findProgramAddress(seeds, program_id.*) catch {
+        return null;
+    };
+
+    return .{
+        .pubkey = pda.address,
+        .bump = pda.bump_seed[0]
+    };
+}
+
+/// Log a pubkey to the console (for debugging in BPF programs)
+pub fn logPubkey(pubkey: *const Pubkey) void {
+    if (bpf.is_bpf_program) {
+        // Use syscall wrapper to log the pubkey
+        syscalls.logPubkey(pubkey);
+    } else {
+        // For testing, don't print to avoid test output issues
+        // Just validate that the pubkey can be converted to string
+        var buf: [64]u8 = undefined;
+        _ = pubkey.toString(&buf) catch {};
+    }
+}
 
 test "createWithSeed" {
     const testing = std.testing;
@@ -412,7 +457,7 @@ test "createWithSeed" {
     // Test seed too long
     const long_seed = "a" ** 33;
     const result = base.createWithSeed(long_seed, &owner);
-    try testing.expectError(error.MaxSeedLengthExceeded, result);
+    try testing.expectError(AddressError.MaxSeedLengthExceeded, result);
 }
 
 test "newUnique generates different addresses" {
@@ -558,7 +603,7 @@ test "pubkey fromString with invalid input" {
     // The base58 decode doesn't fail, but the length check does
     // Skip this specific test for now as it needs more investigation
     const result2 = Pubkey.fromString("111111111111111"); // Too short
-    try std.testing.expectError(error.InvalidPubkey, result2);
+    try std.testing.expectError(ParseAddressError.Invalid, result2);
 }
 
 test "pubkey indexIn" {
@@ -595,4 +640,31 @@ test "pubkey format display" {
     const output = stream.getWritten();
     try std.testing.expect(output.len > 0);
     try std.testing.expect(output.len <= MAX_BASE58_LEN);
+}
+
+test "tryFindProgramAddress" {
+    const testing = std.testing;
+
+    const program_id = Pubkey.newUnique();
+    const seeds = [_][]const u8{"test"};
+
+    // Should find a valid PDA
+    const result = tryFindProgramAddress(&seeds, &program_id);
+    try testing.expect(result != null);
+
+    if (result) |pda| {
+        // Verify the found PDA is valid
+        const seeds_with_bump = [_][]const u8{ "test", &[_]u8{pda.bump} };
+        const recreated = try Pubkey.createProgramAddress(&seeds_with_bump, program_id);
+        try testing.expect(pda.pubkey.equals(&recreated));
+
+        // PDA should be off-curve
+        try testing.expect(!pda.pubkey.isOnCurve());
+    }
+}
+
+test "logPubkey function" {
+    // Just test that it compiles and runs
+    const key = Pubkey.newUnique();
+    logPubkey(&key);
 }
