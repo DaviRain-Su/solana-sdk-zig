@@ -640,3 +640,7 @@ pub fn process(comptime Instructions: type) fn([]const u8) ProgramResult {
    - [ ] IDL generation
    - [ ] Client SDK generation
    - [ ] Program test framework
+
+## 重写原理
+
+- zig所有重写实现的结构体,直接匹配 Solana 运行时序列化的数据布局

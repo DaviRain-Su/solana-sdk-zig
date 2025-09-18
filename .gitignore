@@ -3,3 +3,4 @@ zig-out
 solana-zig
 solana-sdk
 anchor
+target
