@@ -3,7 +3,7 @@ const std = @import("std");
 /// Solana program error codes
 pub const ProgramError = error{
     // Standard errors (0-12)
-    CustomError, // 0
+    CustomError, // 0 TODO:(how to handle custom errors with string information)
     InvalidArgument, // 1
     InvalidInstructionData, // 2
     InvalidAccountData, // 3
@@ -32,7 +32,7 @@ pub const ProgramError = error{
     // More errors (23-48)
     AccountBorrowOutstanding, // 23
     DuplicateAccountOutOfSync, // 24
-    Custom, // 25
+    Custom, // 25 TODO:(how to handle custom errors with string information)
     InvalidError, // 26
     ExecutableDataModified, // 27
     ExecutableLamportChange, // 28

@@ -10,8 +10,8 @@ pub const hasher = @import("hasher.zig");
 pub const errors = @import("error.zig");
 
 // Import error types
-const AddressError = errors.AddressError;
-const ParseAddressError = errors.ParseAddressError;
+const AddressError = errors.PubkeyError;
+const ParseAddressError = errors.ParsePubkeyError;
 
 // Common System Program IDs - computed at compile time for zero runtime cost
 pub const SYSTEM_PROGRAM_ID = Pubkey.parse("11111111111111111111111111111111");
@@ -137,7 +137,7 @@ pub const Pubkey = extern struct {
     /// Create a Pubkey from a byte slice
     pub fn fromSlice(slice: []const u8) !Pubkey {
         if (slice.len != PUBKEY_BYTES) {
-            return ParseAddressError.WrongSize;
+            return ParseAddressError.InvalidPubkeyLength;
         }
         var bytes: [PUBKEY_BYTES]u8 = undefined;
         @memcpy(&bytes, slice);
@@ -149,7 +149,7 @@ pub const Pubkey = extern struct {
         var bytes: [PUBKEY_BYTES]u8 = undefined;
         const len = try BASE58_ENDEC.decode(&bytes, str);
         if (len != PUBKEY_BYTES) {
-            return ParseAddressError.Invalid;
+            return ParseAddressError.InvalidPubkeyLength;
         }
         return .{ .bytes = bytes };
     }
@@ -254,7 +254,7 @@ pub const Pubkey = extern struct {
     }
 
     pub fn parseRuntime(str: []const u8) !Pubkey {
-        if (str.len > MAX_BASE58_LEN) return ParseAddressError.WrongSize;
+        if (str.len > MAX_BASE58_LEN) return ParseAddressError.Invalid;
         var encoded: std.BoundedArray(u8, MAX_BASE58_LEN) = .{};
         encoded.appendSliceAssumeCapacity(str);
 
@@ -263,7 +263,7 @@ pub const Pubkey = extern struct {
             return ParseAddressError.Invalid;
         };
 
-        if (decoded.len != SIZE) return ParseAddressError.WrongSize;
+        if (decoded.len != SIZE) return ParseAddressError.InvalidPubkeyLength;
         return .{ .bytes = decoded.constSlice()[0..SIZE].* };
     }
 
@@ -454,7 +454,7 @@ pub const Pubkey = extern struct {
         while (pda.bump_seed[0] >= 0) : (pda.bump_seed[0] -= 1) {
             pda.address = Pubkey.createProgramAddress(seeds_final, program_id) catch {
                 if (pda.bump_seed[0] == 0) {
-                    return AddressError.InvalidSeeds;
+                    return AddressError.NoViableBumpSeed;
                 }
                 continue;
             };
@@ -462,7 +462,7 @@ pub const Pubkey = extern struct {
             return pda;
         }
 
-        return AddressError.InvalidSeeds;
+        return AddressError.NoViableBumpSeed;
     }
 };
 
@@ -481,10 +481,7 @@ pub fn tryFindProgramAddress(
         return null;
     };
 
-    return .{
-        .pubkey = pda.address,
-        .bump = pda.bump_seed[0]
-    };
+    return .{ .pubkey = pda.address, .bump = pda.bump_seed[0] };
 }
 
 /// Log a pubkey to the console (for debugging in BPF programs)
@@ -668,7 +665,7 @@ test "pubkey fromString with invalid input" {
     // The base58 decode doesn't fail, but the length check does
     // Skip this specific test for now as it needs more investigation
     const result2 = Pubkey.fromString("111111111111111"); // Too short
-    try std.testing.expectError(ParseAddressError.Invalid, result2);
+    try std.testing.expectError(ParseAddressError.InvalidPubkeyLength, result2);
 }
 
 test "pubkey indexIn" {
@@ -738,7 +735,7 @@ test "comptime optimizations" {
     const testing = std.testing;
 
     // Test comptime PDA validation
-    const valid_seeds = [_][]const u8{"test", "seed"};
+    const valid_seeds = [_][]const u8{ "test", "seed" };
     Pubkey.comptimeValidateSeeds(&valid_seeds); // This will compile
 
     // Test comptime equality
@@ -749,28 +746,19 @@ test "comptime optimizations" {
 
     // Test comptime PDA generation (computed at compile time)
     // Use findProgramAddress to ensure we get a valid off-curve address
-    const comptime_found = comptime Pubkey.comptimeFindProgramAddress(
-        &[_][]const u8{"test-pda"},
-        BPF_UPGRADEABLE_LOADER_PROGRAM_ID
-    );
+    const comptime_found = comptime Pubkey.comptimeFindProgramAddress(&[_][]const u8{"test-pda"}, BPF_UPGRADEABLE_LOADER_PROGRAM_ID);
 
     // Verify it matches runtime computation
-    const runtime_found = try Pubkey.findProgramAddress(
-        &[_][]const u8{"test-pda"},
-        BPF_UPGRADEABLE_LOADER_PROGRAM_ID
-    );
+    const runtime_found = try Pubkey.findProgramAddress(&[_][]const u8{"test-pda"}, BPF_UPGRADEABLE_LOADER_PROGRAM_ID);
     try testing.expect(comptime_found.address.equals(&runtime_found.address));
     try testing.expectEqual(comptime_found.bump_seed[0], runtime_found.bump_seed[0]);
 
     // Test comptime multiple PDAs
-    const pdas = comptime Pubkey.comptimeCreateMultiplePDAs(
-        &[_][]const []const u8{
-            &[_][]const u8{"vault"},
-            &[_][]const u8{"user"},
-            &[_][]const u8{"token"},
-        },
-        SYSTEM_PROGRAM_ID
-    );
+    const pdas = comptime Pubkey.comptimeCreateMultiplePDAs(&[_][]const []const u8{
+        &[_][]const u8{"vault"},
+        &[_][]const u8{"user"},
+        &[_][]const u8{"token"},
+    }, SYSTEM_PROGRAM_ID);
     try testing.expect(pdas.len == 3);
 
     // All PDAs should be different
