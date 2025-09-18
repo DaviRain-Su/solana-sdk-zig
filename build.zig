@@ -65,6 +65,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Add option to show test output
+    const show_test_output = b.option(bool, "show-test-output", "Show debug output during tests") orelse false;
+
     // Export self as a module
     const pinocchio_mod = b.addModule("pinocchio", .{
         .root_source_file = b.path("src/root.zig"),
@@ -95,7 +98,31 @@ pub fn build(b: *std.Build) void {
 
     lib_unit_tests.root_module.addImport("base58", base58_mod);
 
+    // Add build option as compile-time constant
+    const options = b.addOptions();
+    options.addOption(bool, "show_test_output", show_test_output);
+    lib_unit_tests.root_module.addOptions("build_options", options);
+
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+
+    // Check for --summary all in build args to enable verbose test output
+    const args = b.args orelse &.{};
+    var show_verbose = false;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--summary") or std.mem.eql(u8, arg, "all")) {
+            show_verbose = true;
+        }
+    }
+
+    // If verbose output requested, use test filter to show all test names
+    if (show_verbose) {
+        run_lib_unit_tests.has_side_effects = true;
+        // This will list all tests
+        run_lib_unit_tests.addArg("--test-filter");
+        run_lib_unit_tests.addArg(""); // Empty filter matches all tests
+    } else if (b.args) |user_args| {
+        run_lib_unit_tests.addArgs(user_args);
+    }
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);

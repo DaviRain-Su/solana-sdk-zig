@@ -209,8 +209,20 @@ test "verify Rust AccountData structure size" {
     try testing.expectEqual(@as(usize, 72), @intFromPtr(&dummy.lamports) - base);
     try testing.expectEqual(@as(usize, 80), @intFromPtr(&dummy.data_len) - base);
 
-    std.debug.print("\n=== Rust Compatibility Test ===\n", .{});
-    std.debug.print("✓ AccountData size: {} bytes (matches Rust)\n", .{@sizeOf(AccountData)});
-    std.debug.print("✓ AccountData alignment: {} bytes (matches Rust)\n", .{@alignOf(AccountData)});
-    std.debug.print("✓ All field offsets match Rust layout\n", .{});
+    // Print debug info based on environment or build mode
+    const builtin = @import("builtin");
+    var should_print = !builtin.is_test;
+
+    // Check build option in test mode
+    if (builtin.is_test) {
+        const build_options = @import("build_options");
+        should_print = build_options.show_test_output;
+    }
+
+    if (should_print) {
+        std.debug.print("\n=== Rust Compatibility Test ===\n", .{});
+        std.debug.print("✓ AccountData size: {} bytes (matches Rust)\n", .{@sizeOf(AccountData)});
+        std.debug.print("✓ AccountData alignment: {} bytes (matches Rust)\n", .{@alignOf(AccountData)});
+        std.debug.print("✓ All field offsets match Rust layout\n", .{});
+    }
 }

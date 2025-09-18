@@ -47,7 +47,7 @@ pub const AddressHasherBuilder = struct {
     pub fn init() Self {
         // Initialize thread-local offset if needed
         if (!tls_initialized) {
-            var rng = std.rand.DefaultPrng.init(@as(u64, @intCast(std.time.timestamp())));
+            var rng = std.Random.DefaultPrng.init(@as(u64, @intCast(std.time.timestamp())));
             tls_offset = rng.random().intRangeAtMost(usize, 0, 24); // 32 - 8 = 24
             tls_initialized = true;
         }
@@ -143,7 +143,8 @@ test "HashMap with PubkeyHashContext" {
         80,
     );
 
-    var map = HashMap.init(testing.allocator);
+    const ctx = PubkeyHashContext.init();
+    var map = HashMap.initContext(testing.allocator, ctx);
     defer map.deinit();
 
     const key1 = Pubkey.newUnique();

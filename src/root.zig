@@ -96,3 +96,12 @@ test "pinocchio exports" {
     _ = ProgramResult;
     _ = SUCCESS;
 }
+
+// Import all test files to ensure they run
+test {
+    _ = @import("msg/msg_test.zig");
+    _ = @import("msg/base58_test.zig");
+    _ = @import("pubkey/hasher.zig");
+    _ = @import("pubkey/error.zig");
+    _ = @import("account_info/rust_compatibility_test.zig");
+}

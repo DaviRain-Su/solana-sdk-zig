@@ -4,6 +4,8 @@
 /// equivalent to Rust's solana_msg crate
 const std = @import("std");
 const syscalls = @import("../syscalls.zig");
+const base58 = @import("base58");
+const BASE58_ENDEC = base58.Table.BITCOIN;
 
 /// Print a message to the log (alias for msg, compatible with log.zig)
 pub inline fn log(message: []const u8) void {
@@ -23,8 +25,8 @@ pub inline fn log(message: []const u8) void {
 pub inline fn msg(message: []const u8) void {
     if (isSolana()) {
         syscalls.sol_log_(message.ptr, message.len);
-    } else {
-        // In non-Solana environments, print to stderr for debugging
+    } else if (shouldPrintDebug()) {
+        // In non-Solana environments, print to stderr for debugging (not in tests)
         std.debug.print("{s}\n", .{message});
     }
 }
@@ -82,7 +84,7 @@ pub fn msgf(comptime fmt: []const u8, args: anytype) void {
 pub inline fn msg64(p0: u64, p1: u64, p2: u64, p3: u64, p4: u64) void {
     if (isSolana()) {
         syscalls.sol_log_64_(p0, p1, p2, p3, p4);
-    } else {
+    } else if (shouldPrintDebug()) {
         std.debug.print("u64 values: {} {} {} {} {}\n", .{ p0, p1, p2, p3, p4 });
     }
 }
@@ -100,21 +102,32 @@ pub inline fn msgPubkey(key: anytype) void {
         *const [32]u8 => key,
         *[32]u8 => @as(*const [32]u8, key),
         [32]u8 => &key,
-        else => {
+        else => blk: {
             // Handle Pubkey struct type
-            if (@hasField(@TypeOf(key), "bytes")) {
-                &key.bytes;
-            } else if (@TypeOf(key) == *const @TypeOf(key.*)) {
-                @as(*const [32]u8, @ptrCast(key));
+            const T = @TypeOf(key);
+            const info = @typeInfo(T);
+            if (info == .pointer) {
+                // It's a pointer to a struct, try to access bytes field
+                if (@hasField(std.meta.Child(T), "bytes")) {
+                    break :blk &key.bytes;
+                } else {
+                    break :blk @as(*const [32]u8, @ptrCast(key));
+                }
+            } else if (info == .@"struct") {
+                if (@hasField(T, "bytes")) {
+                    break :blk &key.bytes;
+                } else {
+                    @compileError("msgPubkey expects a struct with bytes field");
+                }
             } else {
-                @compileError("msgPubkey expects a 32-byte array or Pubkey struct");
+                @compileError("msgPubkey expects a 32-byte array or Pubkey struct with bytes field");
             }
         },
     };
 
     if (isSolana()) {
         syscalls.sol_log_pubkey(@ptrCast(key_ptr));
-    } else {
+    } else if (shouldPrintDebug()) {
         var buf: [64]u8 = undefined;
         const encoded = base58Encode(key_ptr.*, &buf) catch "encoding error";
         std.debug.print("Pubkey: {s}\n", .{encoded});
@@ -139,7 +152,7 @@ pub inline fn logComputeUnits() void {
 pub inline fn msgComputeUnits() void {
     if (isSolana()) {
         syscalls.sol_log_compute_units_();
-    } else {
+    } else if (shouldPrintDebug()) {
         std.debug.print("Compute units logging not available outside Solana\n", .{});
     }
 }
@@ -171,7 +184,7 @@ pub fn msgData(data_slices: []const []const u8) void {
         }
 
         syscalls.sol_log_data(@ptrCast(&data_ptrs), len);
-    } else {
+    } else if (shouldPrintDebug()) {
         std.debug.print("Data slices ({} items):\n", .{data_slices.len});
         for (data_slices, 0..) |slice, i| {
             std.debug.print("  [{}]: ", .{i});
@@ -247,24 +260,29 @@ inline fn isSolana() bool {
     };
 }
 
-/// Simple base58 encoding for debug environments
-fn base58Encode(data: [32]u8, buf: []u8) ![]const u8 {
-    // This is a simplified version for debug output only
-    // In production, the syscall handles the formatting
-    if (buf.len < 64) return error.BufferTooSmall;
+/// Check if we should print debug messages
+inline fn shouldPrintDebug() bool {
+    const builtin = @import("builtin");
+    // In non-test mode, always print
+    if (!builtin.is_test) return true;
 
-    // For simplicity in debug mode, just show hex
-    const hex_chars = "0123456789abcdef";
-    var out_idx: usize = 0;
-
-    for (data) |byte| {
-        if (out_idx + 2 > buf.len) break;
-        buf[out_idx] = hex_chars[byte >> 4];
-        buf[out_idx + 1] = hex_chars[byte & 0xF];
-        out_idx += 2;
+    // In test mode, check build options if available
+    const build_options = @import("build_options");
+    if (build_options.show_test_output) {
+        return true;
     }
+    return false;
+}
 
-    return buf[0..out_idx];
+/// Base58 encoding for debug environments
+fn base58Encode(data: [32]u8, buf: []u8) ![]const u8 {
+    // Use the actual base58 library for proper encoding
+    // Base58 encoding of 32 bytes produces at most 44 characters
+    if (buf.len < 44) return error.BufferTooSmall;
+
+    // Encode using the base58 library
+    const encoded_len = BASE58_ENDEC.encode(buf, &data);
+    return buf[0..encoded_len];
 }
 
 // ============================================================================
@@ -408,4 +426,9 @@ test "msg assertions" {
     // Test error logging
     const err = error.TestError;
     msgError("test context", err);
+}
+
+// Include Rust compatibility tests
+test {
+    _ = @import("base58_test.zig");
 }
