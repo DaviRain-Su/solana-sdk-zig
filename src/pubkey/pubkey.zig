@@ -72,15 +72,15 @@ pub const Pubkey = extern struct {
         }
     }
 
-    pub fn comptimeCreateProgramAddress(comptime seeds: anytype, comptime program_id: Pubkey) Pubkey {
+    pub fn comptimeCreateProgramAddress(comptime seeds: []const []const u8, comptime program_id: Pubkey) Pubkey {
         comptime {
-            return Pubkey.createProgramAddress(seeds, program_id) catch |err| {
+            return Pubkey.createProgramAddress(&seeds, program_id) catch |err| {
                 @compileError("Failed to create program address: " ++ @errorName(err));
             };
         }
     }
 
-    pub fn comptimeFindProgramAddress(comptime seeds: anytype, comptime program_id: Pubkey) ProgramDerivedAddress {
+    pub fn comptimeFindProgramAddress(comptime seeds: []const []const u8, comptime program_id: Pubkey) ProgramDerivedAddress {
         comptime {
             return Pubkey.findProgramAddress(seeds, program_id) catch |err| {
                 @compileError("Failed to find program address: " ++ @errorName(err));
@@ -298,122 +298,57 @@ pub const Pubkey = extern struct {
         return @intFromBool(has_m_root) | @intFromBool(has_p_root);
     }
 
-    pub fn createProgramAddress(seeds: anytype, program_id: Pubkey) !Pubkey {
-        const seeds_info = @typeInfo(@TypeOf(seeds));
+    pub fn createProgramAddress(seeds: []const []const u8, program_id: Pubkey) !Pubkey {
+        // Validate input
+        if (seeds.len > Pubkey.max_num_seeds) {
+            return error.MaxSeedLengthExceeded;
+        }
 
-        // Handle both tuples (comptime known) and slices (runtime)
-        const is_tuple = seeds_info == .@"struct" and seeds_info.@"struct".is_tuple;
-
-        if (is_tuple) {
-            // Comptime path for tuples
-            if (seeds.len > Pubkey.max_num_seeds) {
+        for (seeds) |seed| {
+            if (seed.len > Pubkey.max_seed_length) {
                 return error.MaxSeedLengthExceeded;
             }
+        }
 
-            comptime var seeds_index = 0;
-            inline while (seeds_index < seeds.len) : (seeds_index += 1) {
-                if (@as([]const u8, seeds[seeds_index]).len > Pubkey.max_seed_length) {
-                    return error.MaxSeedLengthExceeded;
-                }
-            }
+        var address: Pubkey = undefined;
 
-            var address: Pubkey = undefined;
-
-            if (bpf.is_bpf_program) {
-                var seeds_array: [seeds.len][]const u8 = undefined;
-                inline for (seeds, 0..) |seed, i| seeds_array[i] = seed;
-
-                syscalls.createProgramAddress(&seeds_array, &program_id, &address) catch |err| {
-                    log.print("failed to create program address with seeds {any} and program id {}: error {}", .{
-                        seeds,
-                        program_id,
-                        err,
-                    });
-                    return err;
-                };
-
-                return address;
-            }
-
-            @setEvalBranchQuota(100_000_000);
-
-            var h = std.crypto.hash.sha2.Sha256.init(.{});
-            comptime var i = 0;
-            inline while (i < seeds.len) : (i += 1) {
-                h.update(seeds[i]);
-            }
-            h.update(&program_id.bytes);
-            h.update("ProgramDerivedAddress");
-            h.final(&address.bytes);
-
-            if (address.isOnCurve()) {
-                return error.InvalidSeeds;
-            }
-
-            return address;
-        } else {
-            // Runtime path for slices
-            if (seeds.len > Pubkey.max_num_seeds) {
-                return error.MaxSeedLengthExceeded;
-            }
-
-            for (seeds) |seed| {
-                if (seed.len > Pubkey.max_seed_length) {
-                    return error.MaxSeedLengthExceeded;
-                }
-            }
-
-            var address: Pubkey = undefined;
-
-            if (bpf.is_bpf_program) {
-                syscalls.createProgramAddress(seeds, &program_id, &address) catch |err| {
-                    log.print("failed to create program address with seeds {any} and program id {}: error {}", .{
-                        seeds,
-                        program_id,
-                        err,
-                    });
-                    return err;
-                };
-
-                return address;
-            }
-
-            @setEvalBranchQuota(100_000_000);
-
-            var h = std.crypto.hash.sha2.Sha256.init(.{});
-            for (seeds) |seed| {
-                h.update(seed);
-            }
-            h.update(&program_id.bytes);
-            h.update("ProgramDerivedAddress");
-            h.final(&address.bytes);
-
-            if (address.isOnCurve()) {
-                return error.InvalidSeeds;
-            }
+        if (bpf.is_bpf_program) {
+            syscalls.createProgramAddress(seeds, &program_id, &address) catch |err| {
+                log.print("failed to create program address with seeds {any} and program id {}: error {}", .{
+                    seeds,
+                    program_id,
+                    err,
+                });
+                return err;
+            };
 
             return address;
         }
+
+        // Fallback implementation for non-BPF environments
+        @setEvalBranchQuota(100_000_000);
+
+        var h = std.crypto.hash.sha2.Sha256.init(.{});
+        for (seeds) |seed| {
+            h.update(seed);
+        }
+        h.update(&program_id.bytes);
+        h.update("ProgramDerivedAddress");
+        h.final(&address.bytes);
+
+        if (address.isOnCurve()) {
+            return error.InvalidSeeds;
+        }
+
+        return address;
     }
 
     /// Find a valid program address and bump seed
-    pub fn findProgramAddress(seeds: anytype, program_id: Pubkey) !ProgramDerivedAddress {
+    pub fn findProgramAddress(seeds: []const []const u8, program_id: Pubkey) !ProgramDerivedAddress {
         var pda: ProgramDerivedAddress = undefined;
 
-        if (comptime bpf.is_bpf_program) {
-            var seeds_array: [seeds.len][]const u8 = undefined;
-
-            comptime var seeds_index = 0;
-            inline while (seeds_index < seeds.len) : (seeds_index += 1) {
-                const Seed = @TypeOf(seeds[seeds_index]);
-                if (comptime Seed == Pubkey) {
-                    seeds_array[seeds_index] = &seeds[seeds_index].bytes;
-                } else {
-                    seeds_array[seeds_index] = seeds[seeds_index];
-                }
-            }
-
-            syscalls.tryFindProgramAddress(&seeds_array, &program_id, &pda.address, &pda.bump_seed[0]) catch |err| {
+        if (bpf.is_bpf_program) {
+            syscalls.tryFindProgramAddress(seeds, &program_id, &pda.address, &pda.bump_seed[0]) catch |err| {
                 log.print("failed to find program address given seeds {any} and program id {}: error {}", .{
                     seeds,
                     program_id,
@@ -425,36 +360,33 @@ pub const Pubkey = extern struct {
             return pda;
         }
 
-        var seeds_with_bump: [seeds.len + 1][]const u8 = undefined;
+        // Fallback implementation for non-BPF environments
+        if (seeds.len >= Pubkey.max_num_seeds) {
+            return error.MaxSeedLengthExceeded;
+        }
 
-        comptime var seeds_index = 0;
-        inline while (seeds_index < seeds.len) : (seeds_index += 1) {
-            const Seed = @TypeOf(seeds[seeds_index]);
-            if (comptime Seed == Pubkey) {
-                seeds_with_bump[seeds_index] = &seeds[seeds_index].bytes;
-            } else {
-                seeds_with_bump[seeds_index] = seeds[seeds_index];
-            }
+        var seeds_with_bump: [17][]const u8 = undefined;
+        for (seeds, 0..) |seed, i| {
+            seeds_with_bump[i] = seed;
         }
 
         pda.bump_seed[0] = 255;
         seeds_with_bump[seeds.len] = &pda.bump_seed;
 
+        const seeds_final = seeds_with_bump[0 .. seeds.len + 1];
+
         while (pda.bump_seed[0] >= 0) : (pda.bump_seed[0] -= 1) {
-            pda = ProgramDerivedAddress{
-                .address = Pubkey.createProgramAddress(&seeds_with_bump, program_id) catch {
-                    if (pda.bump_seed[0] == 0) {
-                        return error.NoViableBumpSeed;
-                    }
-                    continue;
-                },
-                .bump_seed = pda.bump_seed,
+            pda.address = Pubkey.createProgramAddress(seeds_final, program_id) catch {
+                if (pda.bump_seed[0] == 0) {
+                    return error.NoViableBumpSeed;
+                }
+                continue;
             };
 
-            break;
+            return pda;
         }
 
-        return pda;
+        return error.NoViableBumpSeed;
     }
 };
 
@@ -501,15 +433,20 @@ test "createProgramAddress" {
     const program_id = BPF_UPGRADEABLE_LOADER_PROGRAM_ID;
 
     // Test with valid seeds
-    const seeds = .{ "vault", &[_]u8{1} };
-    const pda = try Pubkey.createProgramAddress(seeds, program_id);
+    const byte_seed = [_]u8{1};
+    const seeds = [_][]const u8{ "vault", &byte_seed };
+    const pda = try Pubkey.createProgramAddress(&seeds, program_id);
 
     // Test that PDA is off curve
     try testing.expect(!pda.isOnCurve());
 
     // Test with max seeds
-    const max_seeds = .{ &[_]u8{1}, &[_]u8{2}, &[_]u8{3}, &[_]u8{4}, &[_]u8{5}, &[_]u8{6}, &[_]u8{7}, &[_]u8{8}, &[_]u8{9}, &[_]u8{10}, &[_]u8{11}, &[_]u8{12}, &[_]u8{13}, &[_]u8{14}, &[_]u8{15}, &[_]u8{16} };
-    const pda2 = try Pubkey.createProgramAddress(max_seeds, program_id);
+    const seed_bytes = [_][1]u8{ .{1}, .{2}, .{3}, .{4}, .{5}, .{6}, .{7}, .{8}, .{9}, .{10}, .{11}, .{12}, .{13}, .{14}, .{15}, .{16} };
+    var max_seeds: [16][]const u8 = undefined;
+    for (&seed_bytes, 0..) |seed, i| {
+        max_seeds[i] = &seed;
+    }
+    const pda2 = try Pubkey.createProgramAddress(&max_seeds, program_id);
     _ = pda2;
 }
 
@@ -517,12 +454,13 @@ test "findProgramAddress" {
     const testing = std.testing;
     const program_id = BPF_UPGRADEABLE_LOADER_PROGRAM_ID;
 
-    const seeds = .{ "Lil'", "Bits" };
-    const pda_result = try Pubkey.findProgramAddress(seeds, program_id);
+    const seeds = [_][]const u8{ "Lil'", "Bits" };
+    const pda_result = try Pubkey.findProgramAddress(&seeds, program_id);
 
     // Verify that the bump seed generates the same address
-    const seeds_with_bump = .{ "Lil'", "Bits", &[_]u8{pda_result.bump_seed[0]} };
-    const pda_verify = try Pubkey.createProgramAddress(seeds_with_bump, program_id);
+    const bump = [_]u8{pda_result.bump_seed[0]};
+    const seeds_with_bump = [_][]const u8{ "Lil'", "Bits", &bump };
+    const pda_verify = try Pubkey.createProgramAddress(&seeds_with_bump, program_id);
 
     try testing.expect(pda_result.address.equals(&pda_verify));
 }

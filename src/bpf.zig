@@ -23,7 +23,8 @@ pub const UpgradeableLoaderState = union(enum(u32)) {
 };
 
 pub fn getUpgradeableLoaderProgramDataId(program_id: Pubkey) !Pubkey {
-    const pda = try Pubkey.findProgramAddress(.{program_id}, bpf_upgradeable_loader_program_id);
+    const seeds = [_][]const u8{&program_id.bytes};
+    const pda = try Pubkey.findProgramAddress(&seeds, bpf_upgradeable_loader_program_id);
     return pda.address;
 }
 
