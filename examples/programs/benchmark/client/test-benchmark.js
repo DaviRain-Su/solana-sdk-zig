@@ -9,7 +9,7 @@ import {
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 
-const PROGRAM_ID = new PublicKey("HpxaiWvT5PxxENiVVaqHn2Bsr8E3HnbjeSmW9Sus6otd");
+const PROGRAM_ID = new PublicKey("acvHoEGfxPSHncc48uGc6nsXcT3uKcw5bRSkhBFzxT6");
 
 async function testBenchmark(testType, testName, needsPDA = false) {
   console.log(`\n=== Test ${testType}: ${testName} ===`);

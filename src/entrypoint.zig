@@ -28,8 +28,8 @@ pub const ProcessInstruction = fn (
     instruction_data: []const u8,
 ) ProgramResult;
 
-/// Fast input parser - avoids AccountData creation entirely
-pub fn parseInputFast(
+/// Input parser - optimized to avoid unnecessary copies
+pub fn parseInput(
     input: [*]const u8,
     accounts_buf: *[MAX_ACCOUNTS]AccountInfo,
     raw_accounts_buf: *[MAX_ACCOUNTS]account_info.RawAccountInfo,
@@ -62,6 +62,9 @@ pub fn parseInputFast(
             const data_len = std.mem.readInt(u64, account_ptr[79..87], .little);
             const data_ptr = @as([*]u8, @constCast(account_ptr + 87));
 
+            // Debug: Log the raw bytes
+            // msg.msgf("Raw bytes [0-3]: {} {} {} {}", .{account_ptr[0], account_ptr[1], account_ptr[2], account_ptr[3]});
+
             // Create RawAccountInfo with lazy pointer calculations
             raw_accounts_buf[i] = account_info.RawAccountInfo{
                 .id = @ptrCast(account_ptr + 7),
@@ -70,9 +73,9 @@ pub fn parseInputFast(
                 .data = data_ptr,
                 .owner_id = @ptrCast(account_ptr + 39),
                 .rent_epoch = 0,
-                .is_signer = account_ptr[1],
-                .is_writable = account_ptr[2],
-                .is_executable = account_ptr[3],
+                .is_signer = account_ptr[0],
+                .is_writable = account_ptr[1],
+                .is_executable = account_ptr[2],
             };
 
             // Create minimal AccountInfo with raw pointer
@@ -105,109 +108,8 @@ pub fn parseInputFast(
     };
 }
 
-/// Raw input parser - optimized to minimize copying
-pub fn parseInput(
-    input: [*]const u8,
-    accounts_buf: *[MAX_ACCOUNTS]AccountInfo,
-    account_data_buf: *[MAX_ACCOUNTS]AccountData,
-    raw_accounts_buf: *[MAX_ACCOUNTS]account_info.RawAccountInfo,
-) struct {
-    accounts: []AccountInfo,
-    num_accounts: usize,
-    instruction_data: []const u8,
-    program_id: *const Pubkey,
-} {
-    var offset: usize = 0;
-
-    // Read number of accounts (u64) - unaligned read
-    const num_accounts = std.mem.readInt(u64, input[offset..][0..8], .little);
-    offset += 8;
-
-    // Optimized: Fast account parsing with minimal branches
-    for (0..num_accounts) |i| {
-        const dup_info = input[offset];
-        offset += 1;
-
-        if (dup_info != 0xFF) {
-            // Optimized: Simple duplicate handling
-            offset += 7; // Skip padding
-            accounts_buf[i] = accounts_buf[dup_info];
-            account_data_buf[i] = account_data_buf[dup_info];
-            raw_accounts_buf[i] = raw_accounts_buf[dup_info];
-        } else {
-            // Direct pointers to account data in input buffer
-            const account_ptr = input + offset;
-
-            // Optimized: Direct flag access
-            const is_signer = account_ptr[0];
-            const is_writable = account_ptr[1];
-            const is_executable = account_ptr[2];
-
-            // Optimized: Direct memory reads
-            const key = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7));
-            const owner = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7 + 32));
-            const lamports_ptr = @as(*align(1) u64, @ptrCast(@constCast(account_ptr + 7 + 64)));
-            const data_len = std.mem.readInt(u64, account_ptr[79..87], .little);
-            const data_ptr = @as([*]u8, @constCast(account_ptr + 87));
-
-            // Optimized: Single offset calculation
-            offset += 87 + data_len + ACCOUNT_DATA_PADDING + 8; // 7+32+32+8+8 = 87
-
-            // Optimized: Branchless 8-byte alignment
-            offset = (offset + 7) & ~@as(usize, 7);
-
-            // Fast path: Skip AccountData creation, use RawAccountInfo directly
-            // This avoids copying 64 bytes of Pubkey data
-            account_data_buf[i] = AccountData{
-                .duplicate_index = 0xFF,
-                .is_signer = is_signer,
-                .is_writable = is_writable,
-                .is_executable = is_executable,
-                .original_data_len = std.mem.readInt(u32, account_ptr[3..7], .little),
-                .id = key.*,  // Still need to copy for now
-                .owner_id = owner.*,  // Still need to copy for now
-                .lamports = lamports_ptr.*,
-                .data_len = data_len,
-            };
-
-            // Optimized: Single raw account info structure
-            raw_accounts_buf[i] = account_info.RawAccountInfo{
-                .id = key,
-                .lamports = lamports_ptr,
-                .data_len = data_len,
-                .data = data_ptr,
-                .owner_id = owner,
-                .rent_epoch = 0,
-                .is_signer = is_signer,
-                .is_writable = is_writable,
-                .is_executable = is_executable,
-            };
-
-            // Optimized: Create AccountInfo with raw pointer
-            accounts_buf[i] = AccountInfo.fromDataPtrWithRaw(&account_data_buf[i], data_ptr, &raw_accounts_buf[i]);
-        }
-    }
-
-    // Parse instruction data length - unaligned read
-    const data_len = std.mem.readInt(u64, input[offset..][0..8], .little);
-    offset += 8;
-
-    // Get instruction data slice
-    const instruction_data = input[offset .. offset + data_len];
-    offset += data_len;
-
-    // Parse program ID
-    const program_id = @as(*align(1) const Pubkey, @ptrCast(input + offset));
-
-    return .{
-        .accounts = accounts_buf[0..num_accounts],
-        .num_accounts = num_accounts,
-        .instruction_data = instruction_data,
-        .program_id = program_id,
-    };
-}
-
 /// Declare a standard entrypoint for a Solana program
+/// Uses fast parsing that avoids AccountData creation for optimal performance
 ///
 /// Example:
 /// ```zig
@@ -230,38 +132,12 @@ pub fn parseInput(
 pub fn declareEntrypoint(comptime process_instruction: ProcessInstruction) void {
     const S = struct {
         pub export fn entrypoint(input: [*]const u8) callconv(.C) u64 {
-            // Optimized: Smaller stack allocation and early returns
-            var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
-            var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
-            var raw_accounts_buf: [MAX_ACCOUNTS]account_info.RawAccountInfo = undefined;
-
-            // Parse the input with optimized parsing
-            const parsed = parseInput(input, &accounts_buf, &account_data_buf, &raw_accounts_buf);
-
-            // Direct call without intermediate variables
-            const result = process_instruction(
-                parsed.program_id,
-                parsed.accounts,
-                parsed.instruction_data,
-            );
-
-            // Optimized: Direct return
-            return program_error.resultToU64(result);
-        }
-    };
-    _ = &S.entrypoint; // Force the export
-}
-
-/// Declare a fast entrypoint that skips AccountData creation
-pub fn declareFastEntrypoint(comptime process_instruction: ProcessInstruction) void {
-    const S = struct {
-        pub export fn entrypoint(input: [*]const u8) callconv(.C) u64 {
-            // Fast path: no AccountData buffer
+            // Fast path: no AccountData buffer for optimal CU usage
             var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
             var raw_accounts_buf: [MAX_ACCOUNTS]account_info.RawAccountInfo = undefined;
 
-            // Parse with fast parser
-            const parsed = parseInputFast(input, &accounts_buf, &raw_accounts_buf);
+            // Parse with optimized parser that avoids copying
+            const parsed = parseInput(input, &accounts_buf, &raw_accounts_buf);
 
             // Direct call
             const result = process_instruction(
@@ -305,7 +181,7 @@ test "basic entrypoint parsing" {
     const testing = std.testing;
 
     // Create a mock input buffer (needs to be large enough for ACCOUNT_DATA_PADDING)
-    var input_buffer = [_]u8{0} ** (512 + ACCOUNT_DATA_PADDING);
+    var input_buffer = [_]u8{0} ** 20000;
     var offset: usize = 0;
 
     // Number of accounts (u64) = 1
@@ -317,44 +193,46 @@ test "basic entrypoint parsing" {
     input_buffer[offset] = 0xFF;
     offset += 1;
 
-    // Account flags
-    input_buffer[offset] = 1; // is_signer
-    offset += 1;
-    input_buffer[offset] = 1; // is_writable
-    offset += 1;
-    input_buffer[offset] = 0; // executable
-    offset += 1;
+    // Build account in the format parseInput expects (87 bytes before data)
+    const account_start = offset;
 
-    // Original data length (u32)
-    const orig_data_len: u32 = 100;
-    @memcpy(input_buffer[offset .. offset + 4], std.mem.asBytes(&orig_data_len));
-    offset += 4;
+    // [0]: is_signer
+    input_buffer[account_start + 0] = 1;
 
-    // Pubkey (32 bytes)
+    // [1]: is_writable
+    input_buffer[account_start + 1] = 1;
+
+    // [2]: is_executable
+    input_buffer[account_start + 2] = 0;
+
+    // [3]: unused/padding
+    input_buffer[account_start + 3] = 0;
+
+    // [4-6]: padding (3 bytes)
+    // Already zero from initialization
+
+    // [7-38]: Pubkey (32 bytes)
     const test_pubkey = Pubkey.fromBytes([_]u8{1} ** 32);
-    @memcpy(input_buffer[offset .. offset + 32], &test_pubkey.bytes);
-    offset += 32;
+    @memcpy(input_buffer[account_start + 7 .. account_start + 39], &test_pubkey.bytes);
 
-    // Owner (32 bytes)
+    // [39-70]: Owner (32 bytes)
     const owner_pubkey = Pubkey.fromBytes([_]u8{2} ** 32);
-    @memcpy(input_buffer[offset .. offset + 32], &owner_pubkey.bytes);
-    offset += 32;
+    @memcpy(input_buffer[account_start + 39 .. account_start + 71], &owner_pubkey.bytes);
 
-    // Lamports (u64)
+    // [71-78]: Lamports (8 bytes)
     const lamports: u64 = 1000;
-    @memcpy(input_buffer[offset .. offset + 8], std.mem.asBytes(&lamports));
-    offset += 8;
+    @memcpy(input_buffer[account_start + 71 .. account_start + 79], std.mem.asBytes(&lamports));
 
-    // Data length (u64)
+    // [79-86]: Data length (8 bytes)
     const data_len: u64 = 10;
-    @memcpy(input_buffer[offset .. offset + 8], std.mem.asBytes(&data_len));
-    offset += 8;
+    @memcpy(input_buffer[account_start + 79 .. account_start + 87], std.mem.asBytes(&data_len));
 
-    // Data (10 bytes)
+    // [87+]: Data
     for (0..10) |i| {
-        input_buffer[offset + i] = @as(u8, @intCast(i * 2));
+        input_buffer[account_start + 87 + i] = @as(u8, @intCast(i * 2));
     }
-    offset += 10;
+
+    offset = account_start + 87 + 10; // Account header + data
 
     // Account data padding (10KB)
     offset += ACCOUNT_DATA_PADDING;
@@ -388,11 +266,16 @@ test "basic entrypoint parsing" {
 
     // Allocate buffers for parsing
     var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
-    var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
     var raw_accounts_buf: [MAX_ACCOUNTS]account_info.RawAccountInfo = undefined;
 
     // Parse the input
-    const parsed = parseInput(&input_buffer, &accounts_buf, &account_data_buf, &raw_accounts_buf);
+    const parsed = parseInput(&input_buffer, &accounts_buf, &raw_accounts_buf);
+
+    // Check if parsing succeeded at all
+    if (parsed.num_accounts == 0) {
+        std.debug.print("ERROR: No accounts parsed\n", .{});
+        return error.TestFailed;
+    }
 
     // Verify parsing
     try testing.expectEqual(@as(usize, 1), parsed.num_accounts);

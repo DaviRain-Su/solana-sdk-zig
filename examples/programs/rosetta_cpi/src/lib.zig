@@ -81,7 +81,7 @@ pub fn process_instruction(
     return;
 }
 
-// Export entrypoint - use fast version to skip AccountData
+// Export entrypoint
 comptime {
-    solana.entrypoint.declareFastEntrypoint(process_instruction);
+    solana.entrypoint.declareEntrypoint(process_instruction);
 }

@@ -13,6 +13,7 @@ const ProgramResult = solana.ProgramResult;
 const ProgramError = solana.ProgramError;
 const Instruction = solana.Instruction;
 const AccountMeta = solana.AccountMeta;
+const msg = solana.msg;
 
 /// System Program ID
 const SYSTEM_PROGRAM_BYTES = [_]u8{0} ** 32;
@@ -34,11 +35,14 @@ pub fn process_instruction(
     accounts: []AccountInfo,
     instruction_data: []const u8,
 ) ProgramResult {
+    msg.msgf("CPI Example - accounts: {}, data len: {}", .{accounts.len, instruction_data.len});
 
     // Ultra-optimized: Direct switch without enum conversion
     if (instruction_data.len == 0) {
         return ProgramError.InvalidInstructionData;
     }
+
+    msg.msgf("Instruction type: {}", .{instruction_data[0]});
 
     // Comptime-optimized dispatch table - generates efficient jump table
     return switch (instruction_data[0]) {
@@ -69,20 +73,26 @@ fn transferSol(
     const to_account = &accounts[1];
     const system_program = &accounts[2];
 
+    msg.msgf("From account key: {}", .{from_account.key()});
+    msg.msgf("To account key: {}", .{to_account.key()});
+    msg.msgf("System program key: {}", .{system_program.key()});
+
     // Parse lamports amount from data (8 bytes)
     if (data.len < 8) {
         return ProgramError.InvalidInstructionData;
     }
     const lamports = std.mem.readInt(u64, data[0..8], .little);
 
+    msg.msgf("Transfer amount: {} lamports", .{lamports});
+
     // Verify system program
     if (!system_program.key().equals(&SYSTEM_PROGRAM_ID)) {
         return ProgramError.IncorrectProgramId;
     }
 
-    // Best optimization: Use account data pointers
-    const from_key = &from_account.data_ptr.id;
-    const to_key = &to_account.data_ptr.id;
+    // Best optimization: Use account key() method
+    const from_key = from_account.key();
+    const to_key = to_account.key();
 
     // Optimized: Stack-allocated instruction components
     const ix_accounts = [_]AccountMeta{
@@ -153,8 +163,8 @@ fn createPdaAccount(
     const lamports = 10_000_000; // 0.01 SOL for rent exemption
 
     // Create account instruction
-    const payer_key = &payer.data_ptr.id;
-    const pda_key = &pda_account.data_ptr.id;
+    const payer_key = payer.key();
+    const pda_key = pda_account.key();
 
     var ix_accounts = [_]AccountMeta{
         .{ .pubkey = payer_key, .is_writable = true, .is_signer = true },
@@ -222,8 +232,8 @@ fn transferFromPda(
     const bump = pda_result.bump_seed[0];
 
     // Get stable pointers to pubkeys
-    const pda_key = &pda_account.data_ptr.id;
-    const to_key = &to_account.data_ptr.id;
+    const pda_key = pda_account.key();
+    const to_key = to_account.key();
 
     // Create transfer instruction
     var ix_accounts = [_]AccountMeta{

@@ -126,6 +126,8 @@ fn processInitialize(
     }
 
     // Check that the account is writable
+    msg.msgf("Account writable flag: {}", .{account.isWritable()});
+    msg.msgf("Account signer flag: {}", .{account.isSigner()});
     if (!account.isWritable()) {
         msg.msg("Error: Account must be writable");
         return ProgramError.InvalidAccountData;

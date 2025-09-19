@@ -93,6 +93,9 @@ pub const AccountInfo = struct {
 
     /// Get lamports (read-only)
     pub inline fn getLamports(self: *const AccountInfo) u64 {
+        if (self.raw_ptr) |raw| {
+            return raw.lamports.*;
+        }
         return self.data_ptr.lamports;
     }
 
@@ -100,6 +103,9 @@ pub const AccountInfo = struct {
     pub fn getLamportsMut(self: *AccountInfo) !*u64 {
         if (!self.isWritable()) {
             return error.AccountNotWritable;
+        }
+        if (self.raw_ptr) |raw| {
+            return @alignCast(raw.lamports);
         }
         return &self.data_ptr.lamports;
     }
@@ -123,7 +129,8 @@ pub const AccountInfo = struct {
 
     /// Get account data as slice
     pub fn getData(self: *const AccountInfo) []const u8 {
-        return self.data_buffer[0..self.data_ptr.data_len];
+        const len = if (self.raw_ptr) |raw| raw.data_len else self.data_ptr.data_len;
+        return self.data_buffer[0..len];
     }
 
     /// Get mutable account data (requires writable)
@@ -131,26 +138,39 @@ pub const AccountInfo = struct {
         if (!self.isWritable()) {
             return error.AccountNotWritable;
         }
-        return self.data_buffer[0..self.data_ptr.data_len];
+        const len = if (self.raw_ptr) |raw| raw.data_len else self.data_ptr.data_len;
+        return self.data_buffer[0..len];
     }
 
     /// Check if account is writable
     pub inline fn isWritable(self: *const AccountInfo) bool {
+        if (self.raw_ptr) |raw| {
+            return raw.is_writable != 0;
+        }
         return self.data_ptr.is_writable != 0;
     }
 
     /// Check if account is executable
     pub inline fn isExecutable(self: *const AccountInfo) bool {
+        if (self.raw_ptr) |raw| {
+            return raw.is_executable != 0;
+        }
         return self.data_ptr.is_executable != 0;
     }
 
     /// Check if account is signer
     pub inline fn isSigner(self: *const AccountInfo) bool {
+        if (self.raw_ptr) |raw| {
+            return raw.is_signer != 0;
+        }
         return self.data_ptr.is_signer != 0;
     }
 
     /// Get data length
     pub inline fn dataLen(self: *const AccountInfo) u64 {
+        if (self.raw_ptr) |raw| {
+            return raw.data_len;
+        }
         return self.data_ptr.data_len;
     }
 
@@ -162,6 +182,12 @@ pub const AccountInfo = struct {
     /// Reallocate account data
     pub fn realloc(self: *AccountInfo, new_len: usize, zero_init: bool) !void {
         if (!self.isWritable()) {
+            return error.AccountNotWritable;
+        }
+
+        if (self.raw_ptr) |_| {
+            // Can't realloc with raw_ptr - this is a specialized operation
+            // that requires full AccountData
             return error.AccountNotWritable;
         }
 
@@ -188,6 +214,11 @@ pub const AccountInfo = struct {
     /// Set executable flag (requires writable)
     pub fn setExecutable(self: *AccountInfo, exe: bool) !void {
         if (!self.isWritable()) {
+            return error.AccountNotWritable;
+        }
+        if (self.raw_ptr) |_| {
+            // raw_ptr is const, cannot modify - this shouldn't happen in practice
+            // as setExecutable is rarely used and only with full AccountData
             return error.AccountNotWritable;
         }
         self.data_ptr.is_executable = if (exe) 1 else 0;
