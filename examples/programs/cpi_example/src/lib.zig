@@ -157,7 +157,7 @@ fn createPdaAccount(
     const bump = pda_result.bump_seed[0];
 
     // Calculate minimum rent (simplified - should use rent sysvar)
-    const lamports = 1_000_000;
+    const lamports = 10_000_000; // 0.01 SOL for rent exemption
 
     // Create account instruction
     const payer_key = &payer.data_ptr.id;
