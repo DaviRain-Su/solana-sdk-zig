@@ -67,12 +67,11 @@ pub fn parseInput(
             const is_executable = account_ptr[2];
 
             // Optimized: Direct memory reads
-            const original_data_len = std.mem.readInt(u32, account_ptr[3..7], .little);
             const key = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7));
             const owner = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7 + 32));
             const lamports_ptr = @as(*align(1) u64, @ptrCast(@constCast(account_ptr + 7 + 64)));
-            const data_len = std.mem.readInt(u64, account_ptr[79..87], .little); // 7+32+32+8 = 79
-            const data_ptr = @as([*]u8, @constCast(account_ptr + 87)); // 79+8 = 87
+            const data_len = std.mem.readInt(u64, account_ptr[79..87], .little);
+            const data_ptr = @as([*]u8, @constCast(account_ptr + 87));
 
             // Optimized: Single offset calculation
             offset += 87 + data_len + ACCOUNT_DATA_PADDING + 8; // 7+32+32+8+8 = 87
@@ -80,16 +79,17 @@ pub fn parseInput(
             // Optimized: Branchless 8-byte alignment
             offset = (offset + 7) & ~@as(usize, 7);
 
-            // Ultra-optimized: Use pointer casting to avoid copies
+            // Create AccountData with embedded Pubkey values
+            // This copy is necessary for the AccountData structure
             account_data_buf[i] = AccountData{
                 .duplicate_index = 0xFF,
                 .is_signer = is_signer,
                 .is_writable = is_writable,
                 .is_executable = is_executable,
-                .original_data_len = original_data_len,
-                .id = key.*,  // Required copy for AccountData struct
-                .owner_id = owner.*,  // Required copy for AccountData struct
-                .lamports = lamports_ptr.*,  // Direct value read
+                .original_data_len = std.mem.readInt(u32, account_ptr[3..7], .little),
+                .id = key.*,
+                .owner_id = owner.*,
+                .lamports = lamports_ptr.*,
                 .data_len = data_len,
             };
 

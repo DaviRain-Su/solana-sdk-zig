@@ -101,12 +101,12 @@ pub const Instruction = extern struct {
     };
 
     /// Invoke this instruction (CPI)
-    pub fn invoke(self: *const Instruction, account_infos: []const AccountInfo) !void {
+    pub inline fn invoke(self: *const Instruction, account_infos: []const AccountInfo) !void {
         return invoke_signed(self, account_infos, &.{});
     }
 
     /// Invoke this instruction with signer seeds (for PDAs)
-    pub fn invoke_signed(
+    pub inline fn invoke_signed(
         self: *const Instruction,
         account_infos: []const AccountInfo,
         signer_seeds: []const []const []const u8,

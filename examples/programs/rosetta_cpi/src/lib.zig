@@ -42,15 +42,17 @@ pub fn process_instruction(
         return ProgramError.InvalidInstructionData;
     }
 
-    // Derive expected PDA address (matching Rosetta exactly)
+    // Derive expected PDA address using create_program_address (matching Rosetta exactly)
     const seed = "You pass butter";
     const bump_seed = [_]u8{instruction_data[0]};
     const seeds = [_][]const u8{ seed, &bump_seed };
 
-    const expected_allocated_key = try Pubkey.findProgramAddress(&seeds, program_id.*);
+    const expected_allocated_key = Pubkey.createProgramAddress(&seeds, program_id.*) catch {
+        return ProgramError.InvalidSeeds;
+    };
 
     // Verify the allocated account key matches expected PDA
-    if (!allocated_info.key().equals(&expected_allocated_key.address)) {
+    if (!allocated_info.key().equals(&expected_allocated_key)) {
         return ProgramError.InvalidArgument;
     }
 

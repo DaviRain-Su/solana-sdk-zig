@@ -54,7 +54,7 @@ const CInstruction = extern struct {
 
 
 /// Invoke a cross-program invocation
-pub fn invoke(
+pub inline fn invoke(
     instruction: *const Instruction,
     account_infos: []const AccountInfo,
 ) !void {
@@ -62,31 +62,16 @@ pub fn invoke(
 }
 
 /// Invoke a cross-program invocation with signer seeds (for PDAs)
-pub fn invoke_signed(
+pub inline fn invoke_signed(
     instruction: *const Instruction,
     account_infos: []const AccountInfo,
     signer_seeds: []const []const []const u8,
 ) !void {
-    // Validate inputs
-    if (account_infos.len > MAX_CPI_ACCOUNTS) {
-        return error.TooManyAccounts;
-    }
-    if (instruction.data.len > MAX_CPI_DATA_SIZE) {
-        return error.InstructionDataTooLarge;
-    }
-
-    // Debug logging
-    msg.msgf("CPI: Invoking program {}", .{instruction.program_id});
-    msg.msgf("  Instruction has {} accounts", .{instruction.accounts.len});
-    msg.msgf("  Passing {} account infos", .{account_infos.len});
-    msg.msgf("  Data len: {}", .{instruction.data.len});
-    msg.msgf("  Signers: {}", .{signer_seeds.len});
-
     if (comptime !@import("bpf.zig").is_solana) {
         return; // Mock success in test environment
     }
 
-    // Simply delegate to the Instruction's invoke_signed method
+    // Direct delegation without validation or logging for minimum CU
     try instruction.invoke_signed(account_infos, signer_seeds);
 }
 
