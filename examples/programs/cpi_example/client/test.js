@@ -239,7 +239,7 @@ async function main() {
 
   try {
     // Use manually deployed program ID
-    PROGRAM_ID = new PublicKey("2iuLYiKMPEJT887qeWS2TwV7WU6iBsEq85ywi8qJDRm2");
+    PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || "4Cn7GaRVUXncFiSVnCTLRKKdrxKE6T67QphmQquFCFsc");
     console.log("Using optimized program:", PROGRAM_ID.toBase58());
 
     // Run tests

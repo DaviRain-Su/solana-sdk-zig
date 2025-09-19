@@ -10,7 +10,7 @@ import {
 import fs from "fs";
 
 // Program ID - Update this with your deployed program ID
-const PROGRAM_ID = "3SDBSwUaFhuGd3XH7FNf8XA31GzXkKTMRTYHiXjMB7mt";
+const PROGRAM_ID = "FNNBi2TzGCRsZVNi7PenBXag2eRV4Jg6E7Bbdbff7WSP";
 
 // Instruction enum matching our Zig program
 const HelloInstruction = {
