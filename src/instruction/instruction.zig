@@ -12,6 +12,24 @@ pub const AccountMeta = extern struct {
 
     /// Is the account a signer
     is_signer: bool,
+
+    /// Create a read-only account meta
+    pub fn readOnly(pubkey: *const Pubkey, is_signer: bool) AccountMeta {
+        return .{
+            .pubkey = pubkey,
+            .is_writable = false,
+            .is_signer = is_signer,
+        };
+    }
+
+    /// Create a writable account meta
+    pub fn writable(pubkey: *const Pubkey, is_signer: bool) AccountMeta {
+        return .{
+            .pubkey = pubkey,
+            .is_writable = true,
+            .is_signer = is_signer,
+        };
+    }
 };
 
 /// Instruction data for cross-program invocation - extern struct for C ABI
@@ -94,45 +112,27 @@ pub const Instruction = extern struct {
         signer_seeds: []const []const []const u8,
     ) !void {
         if (comptime @import("../bpf.zig").is_solana) {
-            const msg = @import("../msg/msg.zig");
             const RawAccountInfo = @import("../account_info/account_info.zig").RawAccountInfo;
 
-            // Use the original account pointers if available
-            // Otherwise fall back to creating CPI accounts
-            var has_original = true;
-            for (account_infos) |*info| {
-                if (info.original_account_ptr == null) {
-                    has_original = false;
-                    break;
-                }
-            }
-
-            if (has_original and account_infos.len > 0) {
-                // All accounts have original pointers - use them directly
-                // Get the first original account pointer
+            // Fast path: use original account pointers if available
+            if (account_infos.len > 0 and account_infos[0].original_account_ptr != null) {
+                // Direct CPI using original pointers - minimal overhead
                 const first_raw = @as(*const RawAccountInfo, @ptrCast(@alignCast(account_infos[0].original_account_ptr.?)));
                 const seeds_ptr = if (signer_seeds.len > 0) signer_seeds.ptr else null;
 
-                msg.msgf("Using original account pointers at 0x{x}, len={}", .{@intFromPtr(first_raw), account_infos.len});
-                msg.msgf("  First account id ptr: 0x{x}", .{@intFromPtr(first_raw.id)});
+                const result = sol_invoke_signed_c(self, @ptrCast(first_raw), account_infos.len, seeds_ptr, signer_seeds.len);
+                if (result != 0) return error.CrossProgramInvocationFailed;
+                return;
+            }
 
-                return switch (sol_invoke_signed_c(self, @ptrCast(first_raw), account_infos.len, seeds_ptr, signer_seeds.len)) {
-                    0 => {},
-                    else => |err| {
-                        msg.msgf("CPI failed with error: {}", .{err});
-                        return error.CrossProgramInvocationFailed;
-                    },
-                };
-            } else if (account_infos.len > 0) {
-                // Fallback: create CPI accounts (less likely to work)
-                msg.msg("WARNING: No original account pointers, creating CPI accounts");
-
+            // Fallback path: create CPI accounts (slower)
+            if (account_infos.len > 0) {
                 var cpi_accounts: [32]CPIAccountInfo = undefined;
                 for (account_infos, 0..) |*info, i| {
                     const data = info.data_ptr;
                     cpi_accounts[i] = CPIAccountInfo{
                         .id = &data.id,
-                        .lamports = @ptrCast(&data.lamports),  // Cast to unaligned pointer
+                        .lamports = @ptrCast(&data.lamports),
                         .data_len = data.data_len,
                         .data = info.data_buffer,
                         .owner_id = &data.owner_id,
@@ -144,24 +144,15 @@ pub const Instruction = extern struct {
                 }
 
                 const seeds_ptr = if (signer_seeds.len > 0) signer_seeds.ptr else null;
-                return switch (sol_invoke_signed_c(self, @ptrCast(&cpi_accounts[0]), account_infos.len, seeds_ptr, signer_seeds.len)) {
-                    0 => {},
-                    else => |err| {
-                        msg.msgf("CPI failed with error: {}", .{err});
-                        return error.CrossProgramInvocationFailed;
-                    },
-                };
-            } else {
-                // No accounts
-                var dummy: u8 = 0;
-                return switch (sol_invoke_signed_c(self, @ptrCast(&dummy), 0, null, 0)) {
-                    0 => {},
-                    else => |err| {
-                        msg.msgf("CPI failed with error: {}", .{err});
-                        return error.CrossProgramInvocationFailed;
-                    },
-                };
+                const result = sol_invoke_signed_c(self, @ptrCast(&cpi_accounts[0]), account_infos.len, seeds_ptr, signer_seeds.len);
+                if (result != 0) return error.CrossProgramInvocationFailed;
+                return;
             }
+
+            // No accounts case
+            var dummy: u8 = 0;
+            const result = sol_invoke_signed_c(self, @ptrCast(&dummy), 0, null, 0);
+            if (result != 0) return error.CrossProgramInvocationFailed;
         }
         return; // Mock success in test
     }
@@ -233,26 +224,32 @@ pub const InstructionBuilder = struct {
 test "account meta creation" {
     const key = Pubkey.ZEROES;
 
-    const meta1 = AccountMeta.readOnly(key, true);
+    const meta1 = AccountMeta.readOnly(&key, true);
     try std.testing.expect(meta1.is_signer);
     try std.testing.expect(!meta1.is_writable);
 
-    const meta2 = AccountMeta.writable(key, false);
+    const meta2 = AccountMeta.writable(&key, false);
     try std.testing.expect(!meta2.is_signer);
     try std.testing.expect(meta2.is_writable);
 }
 
 test "instruction creation" {
     const program = Pubkey.ZEROES;
+    const key1 = Pubkey.ZEROES;
+    const key2 = Pubkey.ZEROES;
     const accounts = [_]AccountMeta{
-        AccountMeta.writable(Pubkey.ZEROES, true),
-        AccountMeta.readOnly(Pubkey.ZEROES, false),
+        AccountMeta.writable(&key1, true),
+        AccountMeta.readOnly(&key2, false),
     };
     const data = [_]u8{ 1, 2, 3, 4 };
 
-    const ix = Instruction.init(program, &accounts, &data);
+    const ix = Instruction.from(.{
+        .program_id = &program,
+        .accounts = &accounts,
+        .data = &data,
+    });
 
-    try std.testing.expectEqual(program, ix.program_id);
-    try std.testing.expectEqual(@as(usize, 2), ix.accounts.len);
-    try std.testing.expectEqual(@as(usize, 4), ix.data.len);
+    try std.testing.expectEqual(program, ix.program_id.*);
+    try std.testing.expectEqual(@as(usize, 2), ix.accounts_len);
+    try std.testing.expectEqual(@as(usize, 4), ix.data_len);
 }

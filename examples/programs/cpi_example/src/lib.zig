@@ -13,7 +13,8 @@ const ProgramResult = solana.ProgramResult;
 const ProgramError = solana.ProgramError;
 const Instruction = solana.Instruction;
 const AccountMeta = solana.AccountMeta;
-const msg = solana.msg;
+// Remove msg to reduce CU consumption
+// const msg = solana.msg;
 
 /// System Program ID
 const SYSTEM_PROGRAM_BYTES = [_]u8{0} ** 32;
@@ -35,7 +36,7 @@ pub fn process_instruction(
     accounts: []AccountInfo,
     instruction_data: []const u8,
 ) ProgramResult {
-    msg.msg("CPI Example Program");
+    // Skip logging to reduce CU
 
     // Parse instruction
     if (instruction_data.len == 0) {
@@ -61,7 +62,7 @@ fn transferSol(
 ) ProgramResult {
     _ = program_id;
 
-    msg.msg("Processing TransferSol instruction");
+    // Skip logging to reduce CU
 
     // Expected accounts:
     // 0. From account (signer, writable)
@@ -110,7 +111,7 @@ fn transferSol(
     // Invoke System Program
     try transfer_ix.invoke(accounts[0..3]);
 
-    msg.msg("Transfer successful!");
+    // Transfer successful
     return;
 }
 
@@ -120,7 +121,7 @@ fn createPdaAccount(
     accounts: []AccountInfo,
     data: []const u8,
 ) ProgramResult {
-    msg.msg("Processing CreatePdaAccount instruction");
+    // Skip logging to reduce CU
 
     // Expected accounts:
     // 0. Payer account (signer, writable)
@@ -143,13 +144,13 @@ fn createPdaAccount(
     const seed = "vault";
     const seeds = [_][]const u8{seed};
 
-    msg.msgf("Finding PDA with seed '{s}' and program_id {}", .{ seed, program_id.* });
+    // Skip logging to reduce CU
     const pda_result = try Pubkey.findProgramAddress(&seeds, program_id.*);
-    msg.msgf("Found PDA: {} with bump: {}", .{ pda_result.address, pda_result.bump_seed[0] });
+    // Skip logging to reduce CU
 
     // Verify PDA matches
     if (!pda_account.key().equals(&pda_result.address)) {
-        msg.msgf("PDA mismatch: expected {}, got {}", .{ pda_result.address, pda_account.key().* });
+        // PDA mismatch
         return ProgramError.InvalidSeeds;
     }
 
@@ -188,7 +189,7 @@ fn createPdaAccount(
         &[_][]const []const u8{&signer_seeds},
     );
 
-    msg.msg("PDA account created!");
+    // PDA account created
     return;
 }
 
@@ -198,7 +199,7 @@ fn transferFromPda(
     accounts: []AccountInfo,
     data: []const u8,
 ) ProgramResult {
-    msg.msg("Processing TransferFromPda instruction");
+    // Skip logging to reduce CU
 
     // Expected accounts:
     // 0. PDA account (writable)
@@ -223,7 +224,7 @@ fn transferFromPda(
     const pda_result = try Pubkey.findProgramAddress(&seeds, program_id.*);
 
     if (!pda_account.key().equals(&pda_result.address)) {
-        msg.msgf("PDA mismatch: expected {}, got {}", .{ pda_result.address, pda_account.key().* });
+        // PDA mismatch
         return ProgramError.InvalidSeeds;
     }
 
@@ -257,7 +258,7 @@ fn transferFromPda(
         &[_][]const []const u8{&signer_seeds},
     );
 
-    msg.msg("Transfer from PDA successful!");
+    // Transfer from PDA successful
     return;
 }
 

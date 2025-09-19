@@ -28,7 +28,7 @@ pub const ProcessInstruction = fn (
     instruction_data: []const u8,
 ) ProgramResult;
 
-/// Raw input parser - parses the input buffer from Solana runtime
+/// Raw input parser - optimized to minimize copying
 pub fn parseInput(
     input: [*]const u8,
     accounts_buf: *[MAX_ACCOUNTS]AccountInfo,
@@ -46,7 +46,7 @@ pub fn parseInput(
     const num_accounts = std.mem.readInt(u64, input[offset..][0..8], .little);
     offset += 8;
 
-    // Parse each account
+    // Parse each account with minimal copying
     for (0..num_accounts) |i| {
         const dup_info = input[offset];
         offset += 1;
@@ -56,75 +56,68 @@ pub fn parseInput(
             offset += 7; // padding
             accounts_buf[i] = accounts_buf[dup_info];
             account_data_buf[i] = account_data_buf[dup_info];
+            // Duplicate accounts keep the same raw pointer
+            raw_accounts_buf[i] = raw_accounts_buf[dup_info];
         } else {
-            // Parse account info
-            const is_signer = input[offset];
-            offset += 1;
-            const is_writable = input[offset];
-            offset += 1;
-            const is_executable = input[offset];
-            offset += 1;
+            // Direct pointers to account data in input buffer
+            const account_ptr = input + offset;
 
-            // Original data length (4 bytes) - skip padding
-            const original_data_len = std.mem.readInt(u32, input[offset..][0..4], .little);
-            offset += 4;
+            // Parse flags directly from buffer
+            const is_signer = account_ptr[0];
+            const is_writable = account_ptr[1];
+            const is_executable = account_ptr[2];
 
-            // Pubkey (32 bytes)
-            const key = @as(*align(1) const Pubkey, @ptrCast(input + offset));
-            offset += 32;
+            // Original data length (4 bytes) at offset 3
+            const original_data_len = std.mem.readInt(u32, account_ptr[3..7], .little);
 
-            // Owner (32 bytes)
-            const owner = @as(*align(1) const Pubkey, @ptrCast(input + offset));
-            offset += 32;
+            // Direct pointers - no copying
+            const key = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7));
+            const owner = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7 + 32));
+            const lamports_ptr = @as(*align(1) u64, @ptrCast(@constCast(account_ptr + 7 + 32 + 32)));
 
-            // Lamports (8 bytes)
-            const lamports_ptr = @as(*align(1) u64, @ptrCast(@constCast(input + offset)));
-            const lamports = std.mem.readInt(u64, input[offset..][0..8], .little);
-            offset += 8;
-
-            // Data length (8 bytes)
-            const data_len = std.mem.readInt(u64, input[offset..][0..8], .little);
-            offset += 8;
+            // Read data length
+            const data_len_offset = 7 + 32 + 32 + 8;
+            const data_len = std.mem.readInt(u64, account_ptr[data_len_offset..data_len_offset + 8], .little);
 
             // Data pointer
-            const data_ptr = @as([*]u8, @constCast(input + offset));
+            const data_ptr = @as([*]u8, @constCast(account_ptr + data_len_offset + 8));
 
-            // Skip data + padding + rent epoch
-            offset += data_len + ACCOUNT_DATA_PADDING + @sizeOf(u64);
+            // Update offset to next account
+            offset += 7 + 32 + 32 + 8 + 8 + data_len + ACCOUNT_DATA_PADDING + 8;
 
-            // Align to BPF_ALIGN_OF_U128 (8 bytes)
+            // Align to 8-byte boundary
             const alignment_offset = @intFromPtr(input + offset) & 7;
             if (alignment_offset != 0) {
                 offset += 8 - alignment_offset;
             }
 
-            // Store account data
+            // Create AccountData - only copy essential data
             account_data_buf[i] = AccountData{
                 .duplicate_index = 0xFF,
                 .is_signer = is_signer,
                 .is_writable = is_writable,
                 .is_executable = is_executable,
                 .original_data_len = original_data_len,
-                .id = key.*,
-                .owner_id = owner.*,
-                .lamports = lamports,
+                .id = key.*,  // Copy pubkey for API compatibility
+                .owner_id = owner.*,  // Copy owner for API compatibility
+                .lamports = lamports_ptr.*,  // Copy lamports value
                 .data_len = data_len,
             };
 
-            // Create RawAccountInfo with pointers to original data
+            // Store raw account info with all original pointers
             raw_accounts_buf[i] = account_info.RawAccountInfo{
-                .id = key,  // Keep original pointer
-                .lamports = lamports_ptr,  // Keep unaligned pointer from input
+                .id = key,  // Original pointer
+                .lamports = lamports_ptr,  // Original pointer
                 .data_len = data_len,
-                .data = data_ptr,
-                .owner_id = owner,  // Keep original pointer
+                .data = data_ptr,  // Original pointer
+                .owner_id = owner,  // Original pointer
                 .rent_epoch = 0,
                 .is_signer = is_signer,
                 .is_writable = is_writable,
                 .is_executable = is_executable,
             };
 
-            // Create AccountInfo with reference to raw account
+            // Create AccountInfo with both pointers
             accounts_buf[i] = AccountInfo.fromDataPtrWithOriginal(&account_data_buf[i], data_ptr, &raw_accounts_buf[i]);
         }
     }
@@ -306,9 +299,10 @@ test "basic entrypoint parsing" {
     // Allocate buffers for parsing
     var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
     var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
+    var raw_accounts_buf: [MAX_ACCOUNTS]account_info.RawAccountInfo = undefined;
 
     // Parse the input
-    const parsed = parseInput(&input_buffer, &accounts_buf, &account_data_buf);
+    const parsed = parseInput(&input_buffer, &accounts_buf, &account_data_buf, &raw_accounts_buf);
 
     // Verify parsing
     try testing.expectEqual(@as(usize, 1), parsed.num_accounts);
