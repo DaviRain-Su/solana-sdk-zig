@@ -425,11 +425,7 @@ pub const Pubkey = extern struct {
 
         if (bpf.is_bpf_program) {
             syscalls.tryFindProgramAddress(seeds, &program_id, &pda.address, &pda.bump_seed[0]) catch |err| {
-                msg.print("failed to find program address given seeds {any} and program id {}: error {}", .{
-                    seeds,
-                    program_id,
-                    err,
-                });
+                // Remove logging to save CU
                 return err;
             };
 

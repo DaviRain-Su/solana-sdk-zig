@@ -1,0 +1,15 @@
+.{
+    .name = .benchmark,
+    .version = "0.1.0",
+    .fingerprint = 0xb70c48fe64517a53,
+    .dependencies = .{
+        .solana_sdk_zig = .{
+            .path = "../../..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

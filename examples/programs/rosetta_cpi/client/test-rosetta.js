@@ -21,7 +21,7 @@ async function testRosettaCPI() {
   await connection.confirmTransaction(sig);
 
   // Use our deployed program
-  const programId = new PublicKey("FSZLmzJiDjvvRoFLGCSdivVB6vUBBLdUh2dj8nTeAPTw");
+  const programId = new PublicKey("5DNGUd2Q9Dd6eJZh1STB56bpEFrJiHuwySJqyJayz4wq");
   console.log("Program ID:", programId.toBase58());
 
   // Find PDA with seed "You pass butter" (matching Rosetta)
