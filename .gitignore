@@ -7,6 +7,7 @@ solana-program-sdk-zig
 solana-helloworld-zig
 solana-program-rosetta
 pinocchio
+sig
 anchor
 target
 node_modules
