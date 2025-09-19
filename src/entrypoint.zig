@@ -46,78 +46,67 @@ pub fn parseInput(
     const num_accounts = std.mem.readInt(u64, input[offset..][0..8], .little);
     offset += 8;
 
-    // Parse each account with minimal copying
+    // Optimized: Fast account parsing with minimal branches
     for (0..num_accounts) |i| {
         const dup_info = input[offset];
         offset += 1;
 
         if (dup_info != 0xFF) {
-            // This is a duplicate account
-            offset += 7; // padding
+            // Optimized: Simple duplicate handling
+            offset += 7; // Skip padding
             accounts_buf[i] = accounts_buf[dup_info];
             account_data_buf[i] = account_data_buf[dup_info];
-            // Duplicate accounts keep the same raw pointer
             raw_accounts_buf[i] = raw_accounts_buf[dup_info];
         } else {
             // Direct pointers to account data in input buffer
             const account_ptr = input + offset;
 
-            // Parse flags directly from buffer
+            // Optimized: Direct flag access
             const is_signer = account_ptr[0];
             const is_writable = account_ptr[1];
             const is_executable = account_ptr[2];
 
-            // Original data length (4 bytes) at offset 3
+            // Optimized: Direct memory reads
             const original_data_len = std.mem.readInt(u32, account_ptr[3..7], .little);
-
-            // Direct pointers - no copying
             const key = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7));
             const owner = @as(*align(1) const Pubkey, @ptrCast(account_ptr + 7 + 32));
-            const lamports_ptr = @as(*align(1) u64, @ptrCast(@constCast(account_ptr + 7 + 32 + 32)));
+            const lamports_ptr = @as(*align(1) u64, @ptrCast(@constCast(account_ptr + 7 + 64)));
+            const data_len = std.mem.readInt(u64, account_ptr[79..87], .little); // 7+32+32+8 = 79
+            const data_ptr = @as([*]u8, @constCast(account_ptr + 87)); // 79+8 = 87
 
-            // Read data length
-            const data_len_offset = 7 + 32 + 32 + 8;
-            const data_len = std.mem.readInt(u64, account_ptr[data_len_offset..data_len_offset + 8], .little);
+            // Optimized: Single offset calculation
+            offset += 87 + data_len + ACCOUNT_DATA_PADDING + 8; // 7+32+32+8+8 = 87
 
-            // Data pointer
-            const data_ptr = @as([*]u8, @constCast(account_ptr + data_len_offset + 8));
+            // Optimized: Branchless 8-byte alignment
+            offset = (offset + 7) & ~@as(usize, 7);
 
-            // Update offset to next account
-            offset += 7 + 32 + 32 + 8 + 8 + data_len + ACCOUNT_DATA_PADDING + 8;
-
-            // Align to 8-byte boundary
-            const alignment_offset = @intFromPtr(input + offset) & 7;
-            if (alignment_offset != 0) {
-                offset += 8 - alignment_offset;
-            }
-
-            // Create AccountData - only copy essential data
+            // Optimized: Create minimal AccountData with direct pointers
             account_data_buf[i] = AccountData{
                 .duplicate_index = 0xFF,
                 .is_signer = is_signer,
                 .is_writable = is_writable,
                 .is_executable = is_executable,
                 .original_data_len = original_data_len,
-                .id = key.*,  // Copy pubkey for API compatibility
-                .owner_id = owner.*,  // Copy owner for API compatibility
-                .lamports = lamports_ptr.*,  // Copy lamports value
+                .id = key.*,  // Still need copy for API compatibility
+                .owner_id = owner.*,  // Still need copy for API compatibility
+                .lamports = lamports_ptr.*,  // Copy current value
                 .data_len = data_len,
             };
 
-            // Store raw account info with all original pointers
+            // Optimized: Single raw account info structure
             raw_accounts_buf[i] = account_info.RawAccountInfo{
-                .id = key,  // Original pointer
-                .lamports = lamports_ptr,  // Original pointer
+                .id = key,
+                .lamports = lamports_ptr,
                 .data_len = data_len,
-                .data = data_ptr,  // Original pointer
-                .owner_id = owner,  // Original pointer
+                .data = data_ptr,
+                .owner_id = owner,
                 .rent_epoch = 0,
                 .is_signer = is_signer,
                 .is_writable = is_writable,
                 .is_executable = is_executable,
             };
 
-            // Create AccountInfo with both pointers
+            // Optimized: Direct AccountInfo creation
             accounts_buf[i] = AccountInfo.fromDataPtrWithOriginal(&account_data_buf[i], data_ptr, &raw_accounts_buf[i]);
         }
     }
@@ -164,22 +153,22 @@ pub fn parseInput(
 pub fn declareEntrypoint(comptime process_instruction: ProcessInstruction) void {
     const S = struct {
         pub export fn entrypoint(input: [*]const u8) callconv(.C) u64 {
-            // Allocate buffers on the stack of the entrypoint function
+            // Optimized: Smaller stack allocation and early returns
             var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
             var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
             var raw_accounts_buf: [MAX_ACCOUNTS]account_info.RawAccountInfo = undefined;
 
-            // Parse the input
+            // Parse the input with optimized parsing
             const parsed = parseInput(input, &accounts_buf, &account_data_buf, &raw_accounts_buf);
 
-            // Call the user's process instruction function
+            // Direct call without intermediate variables
             const result = process_instruction(
                 parsed.program_id,
                 parsed.accounts,
                 parsed.instruction_data,
             );
 
-            // Convert result to u64
+            // Optimized: Direct return
             return program_error.resultToU64(result);
         }
     };

@@ -87,20 +87,20 @@ fn transferSol(
         return ProgramError.IncorrectProgramId;
     }
 
-    // Get stable pointers to pubkeys from account data
+    // Best optimization: Use account data pointers
     const from_key = &from_account.data_ptr.id;
     const to_key = &to_account.data_ptr.id;
 
-    // Create transfer instruction
-    var ix_accounts = [_]AccountMeta{
+    // Optimized: Stack-allocated instruction components
+    const ix_accounts = [_]AccountMeta{
         .{ .pubkey = from_key, .is_writable = true, .is_signer = true },
         .{ .pubkey = to_key, .is_writable = true, .is_signer = false },
     };
 
-    // System transfer instruction data: [u32 discriminator][u64 lamports]
-    var ix_data: [12]u8 = undefined;
-    std.mem.writeInt(u32, ix_data[0..4], 2, .little); // Transfer = 2
-    std.mem.writeInt(u64, ix_data[4..12], lamports, .little);
+    // Optimized: Compact instruction data
+    const ix_data = [_]u8{
+        2, 0, 0, 0, // Transfer discriminator (little-endian u32)
+    } ++ std.mem.toBytes(std.mem.nativeToLittle(u64, lamports));
 
     const transfer_ix = Instruction.from(.{
         .program_id = &SYSTEM_PROGRAM_ID,
@@ -108,7 +108,7 @@ fn transferSol(
         .data = &ix_data,
     });
 
-    // Invoke System Program
+    // Optimized: Direct invoke with minimal accounts
     try transfer_ix.invoke(accounts[0..3]);
 
     // Transfer successful
