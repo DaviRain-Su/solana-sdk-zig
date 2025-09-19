@@ -112,12 +112,10 @@ pub const Instruction = extern struct {
         signer_seeds: []const []const []const u8,
     ) !void {
         if (comptime @import("../bpf.zig").is_solana) {
-            const RawAccountInfo = @import("../account_info/account_info.zig").RawAccountInfo;
-
-            // Fast path: use original account pointers if available
-            if (account_infos.len > 0 and account_infos[0].original_account_ptr != null) {
-                // Direct CPI using original pointers - minimal overhead
-                const first_raw = @as(*const RawAccountInfo, @ptrCast(@alignCast(account_infos[0].original_account_ptr.?)));
+            // Fast path: use raw pointers if available
+            if (account_infos.len > 0 and account_infos[0].raw_ptr != null) {
+                // Direct CPI using raw pointers - minimal overhead
+                const first_raw = account_infos[0].raw_ptr.?;
                 const seeds_ptr = if (signer_seeds.len > 0) signer_seeds.ptr else null;
 
                 const result = sol_invoke_signed_c(self, @ptrCast(first_raw), account_infos.len, seeds_ptr, signer_seeds.len);

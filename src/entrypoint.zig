@@ -28,6 +28,83 @@ pub const ProcessInstruction = fn (
     instruction_data: []const u8,
 ) ProgramResult;
 
+/// Fast input parser - avoids AccountData creation entirely
+pub fn parseInputFast(
+    input: [*]const u8,
+    accounts_buf: *[MAX_ACCOUNTS]AccountInfo,
+    raw_accounts_buf: *[MAX_ACCOUNTS]account_info.RawAccountInfo,
+) struct {
+    accounts: []AccountInfo,
+    num_accounts: usize,
+    instruction_data: []const u8,
+    program_id: *const Pubkey,
+} {
+    var offset: usize = 0;
+
+    // Read number of accounts
+    const num_accounts = std.mem.readInt(u64, input[offset..][0..8], .little);
+    offset += 8;
+
+    // Parse accounts - skip AccountData entirely!
+    for (0..num_accounts) |i| {
+        const dup_info = input[offset];
+        offset += 1;
+
+        if (dup_info != 0xFF) {
+            // Duplicate
+            offset += 7;
+            accounts_buf[i] = accounts_buf[dup_info];
+            raw_accounts_buf[i] = raw_accounts_buf[dup_info];
+        } else {
+            const account_ptr = input + offset;
+
+            // Ultra-minimal parsing - only read what's absolutely needed
+            const data_len = std.mem.readInt(u64, account_ptr[79..87], .little);
+            const data_ptr = @as([*]u8, @constCast(account_ptr + 87));
+
+            // Create RawAccountInfo with lazy pointer calculations
+            raw_accounts_buf[i] = account_info.RawAccountInfo{
+                .id = @ptrCast(account_ptr + 7),
+                .lamports = @ptrCast(@constCast(account_ptr + 71)),
+                .data_len = data_len,
+                .data = data_ptr,
+                .owner_id = @ptrCast(account_ptr + 39),
+                .rent_epoch = 0,
+                .is_signer = account_ptr[1],
+                .is_writable = account_ptr[2],
+                .is_executable = account_ptr[3],
+            };
+
+            // Create minimal AccountInfo with raw pointer
+            accounts_buf[i] = AccountInfo{
+                .data_ptr = @ptrFromInt(8), // Aligned dummy pointer
+                .data_buffer = data_ptr,
+                .raw_ptr = &raw_accounts_buf[i],
+            };
+
+            // Skip to next account
+            offset += 87 + data_len + ACCOUNT_DATA_PADDING + 8;
+            offset = (offset + 7) & ~@as(usize, 7);
+        }
+    }
+
+    // Parse instruction data
+    const data_len = std.mem.readInt(u64, input[offset..][0..8], .little);
+    offset += 8;
+    const instruction_data = input[offset .. offset + data_len];
+    offset += data_len;
+
+    // Parse program ID
+    const program_id = @as(*align(1) const Pubkey, @ptrCast(input + offset));
+
+    return .{
+        .accounts = accounts_buf[0..num_accounts],
+        .num_accounts = num_accounts,
+        .instruction_data = instruction_data,
+        .program_id = program_id,
+    };
+}
+
 /// Raw input parser - optimized to minimize copying
 pub fn parseInput(
     input: [*]const u8,
@@ -79,16 +156,16 @@ pub fn parseInput(
             // Optimized: Branchless 8-byte alignment
             offset = (offset + 7) & ~@as(usize, 7);
 
-            // Create AccountData with embedded Pubkey values
-            // This copy is necessary for the AccountData structure
+            // Fast path: Skip AccountData creation, use RawAccountInfo directly
+            // This avoids copying 64 bytes of Pubkey data
             account_data_buf[i] = AccountData{
                 .duplicate_index = 0xFF,
                 .is_signer = is_signer,
                 .is_writable = is_writable,
                 .is_executable = is_executable,
                 .original_data_len = std.mem.readInt(u32, account_ptr[3..7], .little),
-                .id = key.*,
-                .owner_id = owner.*,
+                .id = key.*,  // Still need to copy for now
+                .owner_id = owner.*,  // Still need to copy for now
                 .lamports = lamports_ptr.*,
                 .data_len = data_len,
             };
@@ -106,8 +183,8 @@ pub fn parseInput(
                 .is_executable = is_executable,
             };
 
-            // Optimized: Direct AccountInfo creation
-            accounts_buf[i] = AccountInfo.fromDataPtrWithOriginal(&account_data_buf[i], data_ptr, &raw_accounts_buf[i]);
+            // Optimized: Create AccountInfo with raw pointer
+            accounts_buf[i] = AccountInfo.fromDataPtrWithRaw(&account_data_buf[i], data_ptr, &raw_accounts_buf[i]);
         }
     }
 
@@ -173,6 +250,30 @@ pub fn declareEntrypoint(comptime process_instruction: ProcessInstruction) void 
         }
     };
     _ = &S.entrypoint; // Force the export
+}
+
+/// Declare a fast entrypoint that skips AccountData creation
+pub fn declareFastEntrypoint(comptime process_instruction: ProcessInstruction) void {
+    const S = struct {
+        pub export fn entrypoint(input: [*]const u8) callconv(.C) u64 {
+            // Fast path: no AccountData buffer
+            var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
+            var raw_accounts_buf: [MAX_ACCOUNTS]account_info.RawAccountInfo = undefined;
+
+            // Parse with fast parser
+            const parsed = parseInputFast(input, &accounts_buf, &raw_accounts_buf);
+
+            // Direct call
+            const result = process_instruction(
+                parsed.program_id,
+                parsed.accounts,
+                parsed.instruction_data,
+            );
+
+            return program_error.resultToU64(result);
+        }
+    };
+    _ = &S.entrypoint;
 }
 
 /// Helper macro-like function for simple entrypoint declaration

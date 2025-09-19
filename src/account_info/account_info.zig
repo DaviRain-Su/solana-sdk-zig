@@ -54,36 +54,40 @@ pub const RawAccountInfo = extern struct {
 /// AccountInfo - The primary interface for account access
 /// This struct provides a view into account data with methods for safe access
 pub const AccountInfo = struct {
-    /// Pointer to the raw account data
+    /// Pointer to the raw account data (may be dummy in fast mode)
     data_ptr: *align(8) AccountData,
 
     /// Pointer to the actual data buffer
     data_buffer: [*]u8,
 
-    /// Pointer to the original account info in the input buffer (for CPI)
-    /// This is needed because CPI requires the original memory layout
-    original_account_ptr: ?*const anyopaque = null,
+    /// Direct pointer to RawAccountInfo for CPI and optimized access
+    /// When non-null, this is used instead of data_ptr for key/owner access
+    raw_ptr: ?*const RawAccountInfo = null,
 
     /// Create AccountInfo from a pointer to AccountData
     pub fn fromDataPtr(ptr: *align(8) AccountData, data_buffer: [*]u8) AccountInfo {
         return .{
             .data_ptr = ptr,
             .data_buffer = data_buffer,
-            .original_account_ptr = null,
+            .raw_ptr = null,
         };
     }
 
-    /// Create AccountInfo with original buffer pointer
-    pub fn fromDataPtrWithOriginal(ptr: *align(8) AccountData, data_buffer: [*]u8, original: *const anyopaque) AccountInfo {
+    /// Create AccountInfo with raw pointer for optimization
+    pub fn fromDataPtrWithRaw(ptr: *align(8) AccountData, data_buffer: [*]u8, raw: *const RawAccountInfo) AccountInfo {
         return .{
             .data_ptr = ptr,
             .data_buffer = data_buffer,
-            .original_account_ptr = original,
+            .raw_ptr = raw,
         };
     }
 
     /// Get the account's public key
     pub inline fn key(self: *const AccountInfo) *const Pubkey {
+        // Use raw_ptr if available (avoids copy)
+        if (self.raw_ptr) |raw| {
+            return raw.id;
+        }
         return &self.data_ptr.id;
     }
 
@@ -102,6 +106,10 @@ pub const AccountInfo = struct {
 
     /// Get the owner public key
     pub inline fn owner(self: *const AccountInfo) *const Pubkey {
+        // Use raw_ptr if available (avoids copy)
+        if (self.raw_ptr) |raw| {
+            return raw.owner_id;
+        }
         return &self.data_ptr.owner_id;
     }
 
