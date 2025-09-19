@@ -13,12 +13,12 @@ pub const syscalls = @import("syscalls.zig");
 pub const bpf = @import("bpf.zig");
 pub const msg = @import("msg/msg.zig");
 pub const entrypoint = @import("entrypoint.zig");
+pub const lazy_entrypoint = @import("lazy_entrypoint.zig");
 pub const cpi = @import("cpi.zig");
 
 // Re-export common types
 pub const Pubkey = pubkey.Pubkey;
 pub const AccountInfo = account_info.AccountInfo;
-pub const Account = account_info.Account;
 pub const AccountMeta = instruction.AccountMeta;
 pub const Instruction = instruction.Instruction;
 pub const CompiledInstruction = instruction.CompiledInstruction;
@@ -28,6 +28,10 @@ pub const ProgramResult = program_error.ProgramResult;
 // Re-export entrypoint types and functions
 pub const declareEntrypoint = entrypoint.declareEntrypoint;
 pub const ProcessInstruction = entrypoint.ProcessInstruction;
+pub const declareLazyEntrypoint = lazy_entrypoint.declareLazyEntrypoint;
+pub const LazyProcessInstruction = lazy_entrypoint.LazyProcessInstruction;
+pub const LazyAccount = lazy_entrypoint.LazyAccount;
+pub const LazyAccountIter = lazy_entrypoint.LazyAccountIter;
 
 // Re-export commonly used constants
 pub const SUCCESS = program_error.SUCCESS;

@@ -1,0 +1,15 @@
+.{
+    .name = .lazy_example,
+    .version = "0.1.0",
+    .fingerprint = 0x53a6b4a28f28000,
+    .dependencies = .{
+        .solana_sdk_zig = .{
+            .path = "../../..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
