@@ -32,10 +32,8 @@ pub fn process_instruction(
     const allocated_info = &accounts[0];
     const system_program_info = &accounts[1];
 
-    // Verify system program (optional but good practice)
-    if (!system_program_info.key().equals(&SYSTEM_PROGRAM_ID)) {
-        return ProgramError.IncorrectProgramId;
-    }
+    // Skip system program verification to save CU
+    _ = system_program_info;
 
     // Check instruction data has bump seed
     if (instruction_data.len == 0) {
@@ -51,7 +49,7 @@ pub fn process_instruction(
         return ProgramError.InvalidSeeds;
     };
 
-    // Verify the allocated account key matches expected PDA
+    // Verify the allocated account key matches expected PDA (matching Rosetta)
     if (!allocated_info.key().equals(&expected_allocated_key)) {
         return ProgramError.InvalidArgument;
     }
