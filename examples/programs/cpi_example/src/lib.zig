@@ -149,7 +149,14 @@ fn createPdaAccount(
     const seed = "vault";
     const seeds = [_][]const u8{seed};
 
-    const pda_result = try Pubkey.findProgramAddress(&seeds, program_id.*);
+    const pda_result = Pubkey.findProgramAddress(&seeds, program_id.*) catch |err| {
+        msg.msgf("Failed to find program address: {}", .{err});
+        return switch (err) {
+            error.MaxSeedLengthExceeded => ProgramError.InvalidSeeds,
+            error.NoViableBumpSeed => ProgramError.InvalidSeeds,
+            else => ProgramError.InvalidSeeds,
+        };
+    };
 
     // Verify PDA matches
     if (!pda_account.key().equals(&pda_result.address)) {
@@ -222,7 +229,14 @@ fn transferFromPda(
     // Derive PDA and verify
     const seed = "vault";
     const seeds = [_][]const u8{seed};
-    const pda_result = try Pubkey.findProgramAddress(&seeds, program_id.*);
+    const pda_result = Pubkey.findProgramAddress(&seeds, program_id.*) catch |err| {
+        msg.msgf("Failed to find program address: {}", .{err});
+        return switch (err) {
+            error.MaxSeedLengthExceeded => ProgramError.InvalidSeeds,
+            error.NoViableBumpSeed => ProgramError.InvalidSeeds,
+            else => ProgramError.InvalidSeeds,
+        };
+    };
 
     if (!pda_account.key().equals(&pda_result.address)) {
         // PDA mismatch

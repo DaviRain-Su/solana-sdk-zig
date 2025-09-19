@@ -4,6 +4,7 @@ solana-zig
 solana-sdk
 solana-sdk-rust
 solana-program-sdk-zig
+solana-program-library-zig
 solana-helloworld-zig
 solana-program-rosetta
 pinocchio
