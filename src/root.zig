@@ -7,12 +7,13 @@ const sol = @This();
 // Core modules
 pub const pubkey = @import("pubkey/pubkey.zig");
 pub const account_info = @import("account_info/account_info.zig");
-pub const instruction = @import("instruction.zig");
+pub const instruction = @import("instruction/instruction.zig");
 pub const program_error = @import("program_error.zig");
 pub const syscalls = @import("syscalls.zig");
 pub const bpf = @import("bpf.zig");
 pub const msg = @import("msg/msg.zig");
 pub const entrypoint = @import("entrypoint.zig");
+pub const cpi = @import("cpi.zig");
 
 // Re-export common types
 pub const Pubkey = pubkey.Pubkey;

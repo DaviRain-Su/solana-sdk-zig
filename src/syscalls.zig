@@ -82,6 +82,15 @@ pub extern "C" fn sol_invoke_signed_c(
     signers_seeds_len: u64,
 ) u64;
 
+// Alternative CPI syscall signature for testing
+pub extern "C" fn sol_invoke_signed_c_alt(
+    instruction: *const anyopaque,  // Instruction struct pointer
+    account_infos: *const anyopaque, // AccountInfo array pointer
+    account_infos_len: u64,
+    signers_seeds: ?*const anyopaque,
+    signers_seeds_len: u64,
+) u64;
+
 pub extern "C" fn sol_invoke_signed_rust(
     instruction: *const u8,
     account_infos: *const u8,

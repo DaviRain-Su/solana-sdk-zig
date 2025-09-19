@@ -33,6 +33,7 @@ pub fn parseInput(
     input: [*]const u8,
     accounts_buf: *[MAX_ACCOUNTS]AccountInfo,
     account_data_buf: *[MAX_ACCOUNTS]AccountData,
+    raw_accounts_buf: *[MAX_ACCOUNTS]account_info.RawAccountInfo,
 ) struct {
     accounts: []AccountInfo,
     num_accounts: usize,
@@ -77,6 +78,7 @@ pub fn parseInput(
             offset += 32;
 
             // Lamports (8 bytes)
+            const lamports_ptr = @as(*align(1) u64, @ptrCast(@constCast(input + offset)));
             const lamports = std.mem.readInt(u64, input[offset..][0..8], .little);
             offset += 8;
 
@@ -109,8 +111,21 @@ pub fn parseInput(
                 .data_len = data_len,
             };
 
-            // Create AccountInfo
-            accounts_buf[i] = AccountInfo.fromDataPtr(&account_data_buf[i], data_ptr);
+            // Create RawAccountInfo with pointers to original data
+            raw_accounts_buf[i] = account_info.RawAccountInfo{
+                .id = key,  // Keep original pointer
+                .lamports = lamports_ptr,  // Keep unaligned pointer from input
+                .data_len = data_len,
+                .data = data_ptr,
+                .owner_id = owner,  // Keep original pointer
+                .rent_epoch = 0,
+                .is_signer = is_signer,
+                .is_writable = is_writable,
+                .is_executable = is_executable,
+            };
+
+            // Create AccountInfo with reference to raw account
+            accounts_buf[i] = AccountInfo.fromDataPtrWithOriginal(&account_data_buf[i], data_ptr, &raw_accounts_buf[i]);
         }
     }
 
@@ -137,7 +152,7 @@ pub fn parseInput(
 ///
 /// Example:
 /// ```zig
-/// const entrypoint = @import("pinocchio").entrypoint;
+/// const entrypoint = @import("solana_sdk_zig").entrypoint;
 ///
 /// pub fn process_instruction(
 ///     program_id: *const Pubkey,
@@ -159,9 +174,10 @@ pub fn declareEntrypoint(comptime process_instruction: ProcessInstruction) void 
             // Allocate buffers on the stack of the entrypoint function
             var accounts_buf: [MAX_ACCOUNTS]AccountInfo = undefined;
             var account_data_buf: [MAX_ACCOUNTS]AccountData = undefined;
+            var raw_accounts_buf: [MAX_ACCOUNTS]account_info.RawAccountInfo = undefined;
 
             // Parse the input
-            const parsed = parseInput(input, &accounts_buf, &account_data_buf);
+            const parsed = parseInput(input, &accounts_buf, &account_data_buf, &raw_accounts_buf);
 
             // Call the user's process instruction function
             const result = process_instruction(

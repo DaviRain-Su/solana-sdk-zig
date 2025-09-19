@@ -37,6 +37,20 @@ pub const AccountData = extern struct {
     }
 };
 
+/// Raw account info structure as it appears in the input buffer
+/// This is what we need to pass to CPI - with pointers to Pubkeys
+pub const RawAccountInfo = extern struct {
+    id: *const Pubkey,
+    lamports: *align(1) u64,  // Unaligned pointer from input buffer
+    data_len: u64,
+    data: [*]u8,
+    owner_id: *const Pubkey,
+    rent_epoch: u64,
+    is_signer: u8,
+    is_writable: u8,
+    is_executable: u8,
+};
+
 /// AccountInfo - The primary interface for account access
 /// This struct provides a view into account data with methods for safe access
 pub const AccountInfo = struct {
@@ -46,11 +60,25 @@ pub const AccountInfo = struct {
     /// Pointer to the actual data buffer
     data_buffer: [*]u8,
 
+    /// Pointer to the original account info in the input buffer (for CPI)
+    /// This is needed because CPI requires the original memory layout
+    original_account_ptr: ?*const anyopaque = null,
+
     /// Create AccountInfo from a pointer to AccountData
     pub fn fromDataPtr(ptr: *align(8) AccountData, data_buffer: [*]u8) AccountInfo {
         return .{
             .data_ptr = ptr,
             .data_buffer = data_buffer,
+            .original_account_ptr = null,
+        };
+    }
+
+    /// Create AccountInfo with original buffer pointer
+    pub fn fromDataPtrWithOriginal(ptr: *align(8) AccountData, data_buffer: [*]u8, original: *const anyopaque) AccountInfo {
+        return .{
+            .data_ptr = ptr,
+            .data_buffer = data_buffer,
+            .original_account_ptr = original,
         };
     }
 

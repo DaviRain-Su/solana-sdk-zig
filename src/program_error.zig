@@ -70,6 +70,13 @@ pub const ProgramError = error{
     NoProgramAddressFound,
     InvalidPDA,
     UnknownInstruction,
+
+    // CPI specific errors
+    TooManyAccounts,
+    InstructionDataTooLarge,
+    MissingAccounts,
+    MissingRequiredAccount,
+    CrossProgramInvocationFailed,
 };
 
 /// Success code
@@ -141,6 +148,11 @@ pub fn toErrorCode(err: ProgramError) u64 {
         error.NoProgramAddressFound => 1009,
         error.InvalidPDA => 1010,
         error.UnknownInstruction => 1011,
+        error.TooManyAccounts => 1012,
+        error.InstructionDataTooLarge => 1013,
+        error.MissingAccounts => 1014,
+        error.MissingRequiredAccount => 1015,
+        error.CrossProgramInvocationFailed => 1016,
     };
 }
 
@@ -208,6 +220,11 @@ pub fn fromErrorCode(code: u64) ?ProgramError {
         1009 => error.NoProgramAddressFound,
         1010 => error.InvalidPDA,
         1011 => error.UnknownInstruction,
+        1012 => error.TooManyAccounts,
+        1013 => error.InstructionDataTooLarge,
+        1014 => error.MissingAccounts,
+        1015 => error.MissingRequiredAccount,
+        1016 => error.CrossProgramInvocationFailed,
         else => null,
     };
 }
