@@ -3,6 +3,8 @@ zig-out
 solana-zig
 solana-sdk
 solana-sdk-rust
+solana-program-sdk-zig
+solana-helloworld-zig
 anchor
 target
 node_modules
