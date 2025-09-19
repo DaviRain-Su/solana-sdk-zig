@@ -13,8 +13,6 @@ const ProgramResult = solana.ProgramResult;
 const ProgramError = solana.ProgramError;
 const Instruction = solana.Instruction;
 const AccountMeta = solana.AccountMeta;
-// Remove msg to reduce CU consumption
-// const msg = solana.msg;
 
 /// System Program ID
 const SYSTEM_PROGRAM_BYTES = [_]u8{0} ** 32;
@@ -36,7 +34,6 @@ pub fn process_instruction(
     accounts: []AccountInfo,
     instruction_data: []const u8,
 ) ProgramResult {
-    // Skip logging to reduce CU
 
     // Ultra-optimized: Direct switch without enum conversion
     if (instruction_data.len == 0) {
@@ -59,8 +56,6 @@ fn transferSol(
     data: []const u8,
 ) ProgramResult {
     _ = program_id;
-
-    // Skip logging to reduce CU
 
     // Expected accounts:
     // 0. From account (signer, writable)
@@ -122,7 +117,6 @@ fn createPdaAccount(
     accounts: []AccountInfo,
     data: []const u8,
 ) ProgramResult {
-    // Skip logging to reduce CU
 
     // Expected accounts:
     // 0. Payer account (signer, writable)
@@ -145,9 +139,7 @@ fn createPdaAccount(
     const seed = "vault";
     const seeds = [_][]const u8{seed};
 
-    // Skip logging to reduce CU
     const pda_result = try Pubkey.findProgramAddress(&seeds, program_id.*);
-    // Skip logging to reduce CU
 
     // Verify PDA matches
     if (!pda_account.key().equals(&pda_result.address)) {
@@ -199,7 +191,6 @@ fn transferFromPda(
     accounts: []AccountInfo,
     data: []const u8,
 ) ProgramResult {
-    // Skip logging to reduce CU
 
     // Expected accounts:
     // 0. PDA account (writable)
@@ -268,11 +259,6 @@ fn transferFromPda(
     // Transfer from PDA successful
     return;
 }
-
-// ============================================================================
-// Helper functions
-// ============================================================================
-
 
 // Export entrypoint
 comptime {
