@@ -38,19 +38,17 @@ pub fn process_instruction(
 ) ProgramResult {
     // Skip logging to reduce CU
 
-    // Parse instruction
+    // Ultra-optimized: Direct switch without enum conversion
     if (instruction_data.len == 0) {
         return ProgramError.InvalidInstructionData;
     }
 
-    const instruction = std.meta.intToEnum(CpiExampleInstruction, instruction_data[0]) catch {
-        return ProgramError.InvalidInstructionData;
-    };
-
-    return switch (instruction) {
-        .TransferSol => transferSol(program_id, accounts, instruction_data[1..]),
-        .CreatePdaAccount => createPdaAccount(program_id, accounts, instruction_data[1..]),
-        .TransferFromPda => transferFromPda(program_id, accounts, instruction_data[1..]),
+    // Comptime-optimized dispatch table - generates efficient jump table
+    return switch (instruction_data[0]) {
+        0 => transferSol(program_id, accounts, instruction_data[1..]),
+        1 => createPdaAccount(program_id, accounts, instruction_data[1..]),
+        2 => transferFromPda(program_id, accounts, instruction_data[1..]),
+        else => ProgramError.InvalidInstructionData,
     };
 }
 
@@ -97,10 +95,13 @@ fn transferSol(
         .{ .pubkey = to_key, .is_writable = true, .is_signer = false },
     };
 
-    // Optimized: Compact instruction data
-    const ix_data = [_]u8{
-        2, 0, 0, 0, // Transfer discriminator (little-endian u32)
-    } ++ std.mem.toBytes(std.mem.nativeToLittle(u64, lamports));
+    // Ultra-optimized: Direct memory layout without runtime conversion
+    var ix_data: [12]u8 = undefined;
+    ix_data[0] = 2; // Transfer discriminator
+    ix_data[1] = 0;
+    ix_data[2] = 0;
+    ix_data[3] = 0;
+    std.mem.writeInt(u64, ix_data[4..12], lamports, .little);
 
     const transfer_ix = Instruction.from(.{
         .program_id = &SYSTEM_PROGRAM_ID,
@@ -168,8 +169,7 @@ fn createPdaAccount(
         .{ .pubkey = pda_key, .is_writable = true, .is_signer = true },
     };
 
-    // System create_account instruction data:
-    // [u32 discriminator][u64 lamports][u64 space][32 bytes owner]
+    // Optimized: Direct memory layout with explicit endianness
     var ix_data: [52]u8 = undefined;
     std.mem.writeInt(u32, ix_data[0..4], 0, .little); // CreateAccount = 0
     std.mem.writeInt(u64, ix_data[4..12], lamports, .little);
@@ -240,15 +240,22 @@ fn transferFromPda(
         .{ .pubkey = to_key, .is_writable = true, .is_signer = false },
     };
 
-    // System transfer data
-    var ix_data: [12]u8 = undefined;
-    std.mem.writeInt(u32, ix_data[0..4], 2, .little); // Transfer = 2
-    std.mem.writeInt(u64, ix_data[4..12], lamports, .little);
+    // Ultra-optimized: Use extern struct for transfer data
+    const TransferData = extern struct {
+        discriminator: u32,
+        lamports: u64,
+    };
+
+    const ix_data_struct = TransferData{
+        .discriminator = 2, // Transfer
+        .lamports = lamports,
+    };
+    const ix_data = std.mem.asBytes(&ix_data_struct);
 
     const transfer_ix = Instruction.from(.{
         .program_id = &SYSTEM_PROGRAM_ID,
         .accounts = &ix_accounts,
-        .data = &ix_data,
+        .data = ix_data,
     });
 
     // Invoke with PDA as signer

@@ -125,34 +125,53 @@ pub const Instruction = extern struct {
                 return;
             }
 
-            // Fallback path: create CPI accounts (slower)
+            // Optimized fallback: use comptime loop unrolling for small arrays
             if (account_infos.len > 0) {
-                var cpi_accounts: [32]CPIAccountInfo = undefined;
-                for (account_infos, 0..) |*info, i| {
-                    const data = info.data_ptr;
-                    cpi_accounts[i] = CPIAccountInfo{
-                        .id = &data.id,
-                        .lamports = @ptrCast(&data.lamports),
-                        .data_len = data.data_len,
-                        .data = info.data_buffer,
-                        .owner_id = &data.owner_id,
-                        .rent_epoch = 0,
-                        .is_signer = data.is_signer,
-                        .is_writable = data.is_writable,
-                        .is_executable = data.is_executable,
-                    };
+                if (account_infos.len <= 8) {
+                    // Stack-allocated small array with unrolled loop
+                    var cpi_accounts: [8]CPIAccountInfo = undefined;
+                    inline for (0..8) |i| {
+                        if (i >= account_infos.len) break;
+                        const info = &account_infos[i];
+                        const data = info.data_ptr;
+                        cpi_accounts[i] = CPIAccountInfo{
+                            .id = &data.id,
+                            .lamports = @ptrCast(&data.lamports),
+                            .data_len = data.data_len,
+                            .data = info.data_buffer,
+                            .owner_id = &data.owner_id,
+                            .rent_epoch = 0,
+                            .is_signer = data.is_signer,
+                            .is_writable = data.is_writable,
+                            .is_executable = data.is_executable,
+                        };
+                    }
+                    const seeds_ptr = if (signer_seeds.len > 0) signer_seeds.ptr else null;
+                    const result = sol_invoke_signed_c(self, @ptrCast(&cpi_accounts[0]), account_infos.len, seeds_ptr, signer_seeds.len);
+                    if (result != 0) return error.CrossProgramInvocationFailed;
+                    return;
+                } else {
+                    // Fallback for larger arrays
+                    var cpi_accounts: [32]CPIAccountInfo = undefined;
+                    for (account_infos, 0..) |*info, i| {
+                        const data = info.data_ptr;
+                        cpi_accounts[i] = CPIAccountInfo{
+                            .id = &data.id,
+                            .lamports = @ptrCast(&data.lamports),
+                            .data_len = data.data_len,
+                            .data = info.data_buffer,
+                            .owner_id = &data.owner_id,
+                            .rent_epoch = 0,
+                            .is_signer = data.is_signer,
+                            .is_writable = data.is_writable,
+                            .is_executable = data.is_executable,
+                        };
+                    }
+                    const seeds_ptr = if (signer_seeds.len > 0) signer_seeds.ptr else null;
+                    const result = sol_invoke_signed_c(self, @ptrCast(&cpi_accounts[0]), account_infos.len, seeds_ptr, signer_seeds.len);
+                    if (result != 0) return error.CrossProgramInvocationFailed;
                 }
-
-                const seeds_ptr = if (signer_seeds.len > 0) signer_seeds.ptr else null;
-                const result = sol_invoke_signed_c(self, @ptrCast(&cpi_accounts[0]), account_infos.len, seeds_ptr, signer_seeds.len);
-                if (result != 0) return error.CrossProgramInvocationFailed;
-                return;
             }
-
-            // No accounts case
-            var dummy: u8 = 0;
-            const result = sol_invoke_signed_c(self, @ptrCast(&dummy), 0, null, 0);
-            if (result != 0) return error.CrossProgramInvocationFailed;
         }
         return; // Mock success in test
     }

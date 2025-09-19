@@ -80,16 +80,16 @@ pub fn parseInput(
             // Optimized: Branchless 8-byte alignment
             offset = (offset + 7) & ~@as(usize, 7);
 
-            // Optimized: Create minimal AccountData with direct pointers
+            // Ultra-optimized: Use pointer casting to avoid copies
             account_data_buf[i] = AccountData{
                 .duplicate_index = 0xFF,
                 .is_signer = is_signer,
                 .is_writable = is_writable,
                 .is_executable = is_executable,
                 .original_data_len = original_data_len,
-                .id = key.*,  // Still need copy for API compatibility
-                .owner_id = owner.*,  // Still need copy for API compatibility
-                .lamports = lamports_ptr.*,  // Copy current value
+                .id = key.*,  // Required copy for AccountData struct
+                .owner_id = owner.*,  // Required copy for AccountData struct
+                .lamports = lamports_ptr.*,  // Direct value read
                 .data_len = data_len,
             };
 

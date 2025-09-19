@@ -239,8 +239,8 @@ async function main() {
 
   try {
     // Use manually deployed program ID
-    PROGRAM_ID = new PublicKey("9BZVxPYqAZaz6gRwPQLoWVgy6v7CkQbs3TxNS1j9FpC5");
-    console.log("Using deployed program:", PROGRAM_ID.toBase58());
+    PROGRAM_ID = new PublicKey("2iuLYiKMPEJT887qeWS2TwV7WU6iBsEq85ywi8qJDRm2");
+    console.log("Using optimized program:", PROGRAM_ID.toBase58());
 
     // Run tests
     await testTransferSol(connection, payer);
