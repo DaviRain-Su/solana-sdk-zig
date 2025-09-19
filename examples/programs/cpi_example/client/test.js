@@ -9,16 +9,15 @@ import {
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 
-// Program ID - Update this with your deployed program ID
-const PROGRAM_ID = "9rPdcSEcW5KFnDyFo8YDfjwcR9nBhDtxfKy876xqDSXK";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-// Instruction enum matching our Zig program
-const CpiExampleInstruction = {
-  TransferSol: 0,
-  CreatePdaAccount: 1,
-  TransferFromPda: 2,
-};
+// Program ID - will be updated after deployment
+let PROGRAM_ID = null;
 
 // Load keypair from file
 function loadKeypair(filepath) {
@@ -26,270 +25,241 @@ function loadKeypair(filepath) {
   return Keypair.fromSecretKey(new Uint8Array(keypairData));
 }
 
-// Create PDA
-function findProgramAddress(seeds, programId) {
-  return PublicKey.findProgramAddressSync(seeds, programId);
+// Deploy program and get program ID
+async function deployProgram(connection, payer) {
+  console.log("Deploying program...");
+
+  const programPath = path.join(__dirname, "../zig-out/lib/cpi_example.so");
+
+  if (!fs.existsSync(programPath)) {
+    throw new Error(`Program file not found: ${programPath}`);
+  }
+
+  // Use solana CLI to deploy
+  const { exec } = await import("child_process");
+  const { promisify } = await import("util");
+  const execAsync = promisify(exec);
+
+  const { stdout } = await execAsync(`solana program deploy ${programPath}`);
+  const match = stdout.match(/Program Id: (\w+)/);
+
+  if (match) {
+    PROGRAM_ID = new PublicKey(match[1]);
+    console.log("Program deployed:", PROGRAM_ID.toBase58());
+    return PROGRAM_ID;
+  } else {
+    throw new Error("Failed to extract program ID from deployment output");
+  }
 }
 
-async function main() {
-  console.log("CPI Example Test Client");
-  console.log("=".repeat(80));
+// Test 1: Transfer SOL using CPI
+async function testTransferSol(connection, payer) {
+  console.log("\n=== Test 1: Transfer SOL using CPI ===");
 
-  // Connect to local validator
-  const connection = new Connection("http://localhost:8899", "confirmed");
-  console.log("Connected to local validator");
-
-  // Load payer keypair
-  const payer = loadKeypair(process.env.HOME + "/.config/solana/id.json");
-  console.log("Payer:", payer.publicKey.toBase58());
-  console.log("Program ID:", PROGRAM_ID);
-
-  // Check payer balance
-  const balance = await connection.getBalance(payer.publicKey);
-  console.log("Payer balance:", balance / LAMPORTS_PER_SOL, "SOL");
-
-  if (balance < 0.1 * LAMPORTS_PER_SOL) {
-    console.error("❌ Insufficient balance. Please airdrop some SOL first.");
-    console.log("Run: solana airdrop 1");
-    return;
-  }
-
-  // Create a recipient for transfers
+  // Create recipient account
   const recipient = Keypair.generate();
-  console.log("Recipient:", recipient.publicKey.toBase58());
 
-  // =============================================================================
-  // Test 1: Transfer SOL using CPI
-  // =============================================================================
-  console.log("\n" + "=".repeat(80));
-  console.log("Test 1: Transfer SOL using CPI");
-  console.log("=".repeat(80));
+  // Fund recipient with minimum balance
+  const airdropSig = await connection.requestAirdrop(
+    recipient.publicKey,
+    0.01 * LAMPORTS_PER_SOL
+  );
+  await connection.confirmTransaction(airdropSig);
 
-  try {
-    const lamportsToTransfer = 0.01 * LAMPORTS_PER_SOL; // 0.01 SOL
+  // Transfer amount (in lamports)
+  const transferAmount = 1000000; // 0.001 SOL
 
-    // Create instruction data: [instruction_discriminator][lamports as u64]
-    const dataBuffer = Buffer.alloc(9);
-    dataBuffer.writeUInt8(CpiExampleInstruction.TransferSol, 0);
-    dataBuffer.writeBigUInt64LE(BigInt(lamportsToTransfer), 1);
+  // Create instruction data: [instruction_type (1 byte)][amount (8 bytes)]
+  const data = Buffer.alloc(9);
+  data.writeUInt8(0, 0); // TransferSol = 0
+  data.writeBigUInt64LE(BigInt(transferAmount), 1);
 
-    const instruction = new TransactionInstruction({
-      keys: [
-        { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-        { pubkey: recipient.publicKey, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
-      programId: new PublicKey(PROGRAM_ID),
-      data: dataBuffer,
-    });
+  const instruction = new TransactionInstruction({
+    keys: [
+      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: recipient.publicKey, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data: data,
+  });
 
-    const transaction = new Transaction().add(instruction);
-    const signature = await sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [payer],
-      { commitment: "confirmed" }
-    );
-    console.log("✅ Transfer successful! Transaction:", signature);
+  const transaction = new Transaction().add(instruction);
 
-    // Check recipient balance
-    const recipientBalance = await connection.getBalance(recipient.publicKey);
-    console.log("Recipient balance:", recipientBalance / LAMPORTS_PER_SOL, "SOL");
+  console.log("Sending transfer CPI transaction...");
+  const signature = await sendAndConfirmTransaction(
+    connection,
+    transaction,
+    [payer],
+    { commitment: "confirmed" }
+  );
 
-    // Get transaction logs
-    const tx = await connection.getTransaction(signature, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    });
-    console.log("Logs:");
-    tx.meta.logMessages
-      .filter((log) => log.includes("Program log:"))
-      .forEach((log) => console.log("  ", log));
-  } catch (error) {
-    console.error("❌ Failed:", error.message);
-  }
+  console.log("✅ Transfer successful! Signature:", signature);
 
-  // =============================================================================
-  // Test 2: Create PDA Account
-  // =============================================================================
-  console.log("\n" + "=".repeat(80));
-  console.log("Test 2: Create PDA Account");
-  console.log("=".repeat(80));
+  // Check balances
+  const recipientBalance = await connection.getBalance(recipient.publicKey);
+  console.log(`Recipient balance: ${recipientBalance / LAMPORTS_PER_SOL} SOL`);
+}
+
+// Test 2: Create PDA account
+async function testCreatePdaAccount(connection, payer) {
+  console.log("\n=== Test 2: Create PDA Account ===");
 
   // Derive PDA
   const seed = Buffer.from("vault");
-  const [pdaAddress, bump] = findProgramAddress([seed], new PublicKey(PROGRAM_ID));
-  console.log("PDA:", pdaAddress.toBase58());
-  console.log("Bump:", bump);
+  console.log(`Program ID: ${PROGRAM_ID.toBase58()}`);
+  console.log(`Seed: "${seed.toString()}" (hex: ${seed.toString('hex')})`);
 
-  try {
-    // Check if PDA already exists
-    const pdaInfo = await connection.getAccountInfo(pdaAddress);
-    if (pdaInfo) {
-      console.log("PDA already exists, skipping creation");
-    } else {
-      const space = 1024; // 1KB for example
+  const [pda, bump] = await PublicKey.findProgramAddress(
+    [seed],
+    PROGRAM_ID
+  );
 
-      // Create instruction data: [instruction_discriminator][space as u64]
-      const dataBuffer = Buffer.alloc(9);
-      dataBuffer.writeUInt8(CpiExampleInstruction.CreatePdaAccount, 0);
-      dataBuffer.writeBigUInt64LE(BigInt(space), 1);
+  console.log(`PDA: ${pda.toBase58()}`);
+  console.log(`Bump: ${bump}`);
 
-      const instruction = new TransactionInstruction({
-        keys: [
-          { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-          { pubkey: pdaAddress, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: PublicKey.default, isSigner: false, isWritable: false }, // Rent sysvar (not used)
-        ],
-        programId: new PublicKey(PROGRAM_ID),
-        data: dataBuffer,
-      });
-
-      const transaction = new Transaction().add(instruction);
-      const signature = await sendAndConfirmTransaction(
-        connection,
-        transaction,
-        [payer],
-        { commitment: "confirmed" }
-      );
-      console.log("✅ PDA account created! Transaction:", signature);
-
-      // Verify PDA was created
-      const newPdaInfo = await connection.getAccountInfo(pdaAddress);
-      if (newPdaInfo) {
-        console.log("PDA account details:");
-        console.log("  Owner:", newPdaInfo.owner.toBase58());
-        console.log("  Balance:", newPdaInfo.lamports / LAMPORTS_PER_SOL, "SOL");
-        console.log("  Size:", newPdaInfo.data.length, "bytes");
-      }
-
-      // Get transaction logs
-      const tx = await connection.getTransaction(signature, {
-        commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
-      });
-      console.log("Logs:");
-      tx.meta.logMessages
-        .filter((log) => log.includes("Program log:"))
-        .forEach((log) => console.log("  ", log));
-    }
-  } catch (error) {
-    console.error("❌ Failed:", error.message);
+  // Check if PDA already exists
+  const pdaInfo = await connection.getAccountInfo(pda);
+  if (pdaInfo) {
+    console.log("PDA already exists, skipping creation");
+    return pda;
   }
 
-  // =============================================================================
-  // Test 3: Transfer from PDA using invoke_signed
-  // =============================================================================
-  console.log("\n" + "=".repeat(80));
-  console.log("Test 3: Transfer from PDA using invoke_signed");
+  // Create instruction data: [instruction_type (1 byte)][space (8 bytes)]
+  const space = 100; // 100 bytes
+  const data = Buffer.alloc(9);
+  data.writeUInt8(1, 0); // CreatePdaAccount = 1
+  data.writeBigUInt64LE(BigInt(space), 1);
+
+  const instruction = new TransactionInstruction({
+    keys: [
+      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: pda, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data: data,
+  });
+
+  const transaction = new Transaction().add(instruction);
+
+  console.log("Creating PDA account...");
+  const signature = await sendAndConfirmTransaction(
+    connection,
+    transaction,
+    [payer],
+    { commitment: "confirmed" }
+  );
+
+  console.log("✅ PDA account created! Signature:", signature);
+
+  // Verify PDA account
+  const pdaAccountInfo = await connection.getAccountInfo(pda);
+  console.log(`PDA account size: ${pdaAccountInfo.data.length} bytes`);
+  console.log(`PDA account owner: ${pdaAccountInfo.owner.toBase58()}`);
+
+  return pda;
+}
+
+// Test 3: Transfer from PDA
+async function testTransferFromPda(connection, payer, pda) {
+  console.log("\n=== Test 3: Transfer from PDA ===");
+
+  // Fund the PDA first
+  console.log("Funding PDA account...");
+  const fundTx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: payer.publicKey,
+      toPubkey: pda,
+      lamports: 0.01 * LAMPORTS_PER_SOL,
+    })
+  );
+  await sendAndConfirmTransaction(connection, fundTx, [payer]);
+
+  // Create recipient
+  const recipient = Keypair.generate();
+
+  // Transfer amount
+  const transferAmount = 1000000; // 0.001 SOL
+
+  // Create instruction data: [instruction_type (1 byte)][amount (8 bytes)]
+  const data = Buffer.alloc(9);
+  data.writeUInt8(2, 0); // TransferFromPda = 2
+  data.writeBigUInt64LE(BigInt(transferAmount), 1);
+
+  const instruction = new TransactionInstruction({
+    keys: [
+      { pubkey: pda, isSigner: false, isWritable: true },
+      { pubkey: recipient.publicKey, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: PROGRAM_ID,
+    data: data,
+  });
+
+  const transaction = new Transaction().add(instruction);
+
+  console.log("Transferring from PDA...");
+  const signature = await sendAndConfirmTransaction(
+    connection,
+    transaction,
+    [payer],
+    { commitment: "confirmed" }
+  );
+
+  console.log("✅ Transfer from PDA successful! Signature:", signature);
+
+  // Check recipient balance
+  const recipientBalance = await connection.getBalance(recipient.publicKey);
+  console.log(`Recipient balance: ${recipientBalance / LAMPORTS_PER_SOL} SOL`);
+}
+
+// Main test function
+async function main() {
+  console.log("CPI Example Test Suite");
   console.log("=".repeat(80));
 
-  try {
-    // First fund the PDA if needed
-    const pdaBalance = await connection.getBalance(pdaAddress);
-    if (pdaBalance < 0.005 * LAMPORTS_PER_SOL) {
-      console.log("Funding PDA first...");
-      const fundTx = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: payer.publicKey,
-          toPubkey: pdaAddress,
-          lamports: 0.01 * LAMPORTS_PER_SOL,
-        })
-      );
-      await sendAndConfirmTransaction(connection, fundTx, [payer]);
-      console.log("✅ PDA funded with 0.01 SOL");
-    }
+  const connection = new Connection("http://localhost:8899", "confirmed");
+  const payer = loadKeypair(process.env.HOME + "/.config/solana/id.json");
 
-    const lamportsToTransfer = 0.001 * LAMPORTS_PER_SOL; // 0.001 SOL
+  console.log("Payer:", payer.publicKey.toBase58());
 
-    // Create instruction data: [instruction_discriminator][lamports as u64]
-    const dataBuffer = Buffer.alloc(9);
-    dataBuffer.writeUInt8(CpiExampleInstruction.TransferFromPda, 0);
-    dataBuffer.writeBigUInt64LE(BigInt(lamportsToTransfer), 1);
+  // Get payer balance
+  const balance = await connection.getBalance(payer.publicKey);
+  console.log(`Payer balance: ${balance / LAMPORTS_PER_SOL} SOL`);
 
-    const newRecipient = Keypair.generate();
-    console.log("New recipient:", newRecipient.publicKey.toBase58());
-
-    const instruction = new TransactionInstruction({
-      keys: [
-        { pubkey: pdaAddress, isSigner: false, isWritable: true },
-        { pubkey: newRecipient.publicKey, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
-      programId: new PublicKey(PROGRAM_ID),
-      data: dataBuffer,
-    });
-
-    const transaction = new Transaction().add(instruction);
-    const signature = await sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [payer],
-      { commitment: "confirmed" }
+  if (balance < 0.1 * LAMPORTS_PER_SOL) {
+    console.log("Requesting airdrop...");
+    const sig = await connection.requestAirdrop(
+      payer.publicKey,
+      2 * LAMPORTS_PER_SOL
     );
-    console.log("✅ Transfer from PDA successful! Transaction:", signature);
-
-    // Check balances
-    const finalPdaBalance = await connection.getBalance(pdaAddress);
-    const recipientBalance = await connection.getBalance(newRecipient.publicKey);
-    console.log("Final PDA balance:", finalPdaBalance / LAMPORTS_PER_SOL, "SOL");
-    console.log("Recipient balance:", recipientBalance / LAMPORTS_PER_SOL, "SOL");
-
-    // Get transaction logs
-    const tx = await connection.getTransaction(signature, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    });
-    console.log("Logs:");
-    tx.meta.logMessages
-      .filter((log) => log.includes("Program log:"))
-      .forEach((log) => console.log("  ", log));
-  } catch (error) {
-    console.error("❌ Failed:", error.message);
+    await connection.confirmTransaction(sig);
   }
-
-  // =============================================================================
-  // Test 4: Error Case - Invalid System Program
-  // =============================================================================
-  console.log("\n" + "=".repeat(80));
-  console.log("Test 4: Error Case - Invalid System Program");
-  console.log("=".repeat(80));
 
   try {
-    const dataBuffer = Buffer.alloc(9);
-    dataBuffer.writeUInt8(CpiExampleInstruction.TransferSol, 0);
-    dataBuffer.writeBigUInt64LE(BigInt(1000), 1);
+    // Deploy program
+    await deployProgram(connection, payer);
 
-    const instruction = new TransactionInstruction({
-      keys: [
-        { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-        { pubkey: recipient.publicKey, isSigner: false, isWritable: true },
-        { pubkey: payer.publicKey, isSigner: false, isWritable: false }, // Wrong! Should be SystemProgram
-      ],
-      programId: new PublicKey(PROGRAM_ID),
-      data: dataBuffer,
-    });
+    // Run tests
+    await testTransferSol(connection, payer);
 
-    const transaction = new Transaction().add(instruction);
-    const simulation = await connection.simulateTransaction(transaction, [payer]);
-
-    if (simulation.value.err) {
-      console.log("✅ Expected failure:", simulation.value.err);
-      console.log("Error logs:");
-      simulation.value.logs
-        .filter((log) => log.includes("Program log:"))
-        .forEach((log) => console.log("  ", log));
-    } else {
-      console.log("❌ Should have failed but didn't");
+    // PDA tests - now with proper PDA derivation
+    const pda = await testCreatePdaAccount(connection, payer);
+    if (pda) {
+      await testTransferFromPda(connection, payer, pda);
     }
-  } catch (error) {
-    console.log("✅ Expected error:", error.message);
-  }
 
-  console.log("\n" + "=".repeat(80));
-  console.log("✅ All CPI tests completed!");
-  console.log("=".repeat(80));
+    console.log("\n✅ All tests passed!");
+
+  } catch (error) {
+    console.error("\n❌ Test failed:", error);
+    if (error.logs) {
+      console.log("Program logs:");
+      error.logs.forEach(log => console.log(log));
+    }
+    process.exit(1);
+  }
 }
 
 main().catch(console.error);

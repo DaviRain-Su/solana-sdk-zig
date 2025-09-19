@@ -47,14 +47,14 @@ pub extern "C" fn sol_log_data(data: [*]const [*]const u8, len: u64) void;
 
 // Program address syscalls
 pub extern "C" fn sol_create_program_address(
-    seeds: [*]const [*]const u8,
+    seeds: [*]const []const u8,
     seeds_len: u64,
     program_id: *const u8,
     address: *u8,
 ) u64;
 
 pub extern "C" fn sol_try_find_program_address(
-    seeds: [*]const [*]const u8,
+    seeds: [*]const []const u8,
     seeds_len: u64,
     program_id: *const u8,
     address: *u8,
@@ -631,5 +631,47 @@ pub fn panic(message: []const u8) noreturn {
 pub inline fn assert(condition: bool, message: []const u8) void {
     if (!condition) {
         panic(message);
+    }
+}
+
+// ============================================================================
+// PDA Helper Functions
+// ============================================================================
+
+/// Create a program address from seeds
+pub fn createProgramAddress(
+    seeds: []const []const u8,
+    program_id: *const Pubkey,
+    address: *Pubkey,
+) !void {
+    const result = sol_create_program_address(
+        seeds.ptr,
+        seeds.len,
+        &program_id.bytes[0],
+        &address.bytes[0],
+    );
+
+    if (result != 0) {
+        return error.InvalidSeeds;
+    }
+}
+
+/// Try to find a valid program address and bump seed
+pub fn tryFindProgramAddress(
+    seeds: []const []const u8,
+    program_id: *const Pubkey,
+    address: *Pubkey,
+    bump_seed: *u8,
+) !void {
+    const result = sol_try_find_program_address(
+        seeds.ptr,
+        seeds.len,
+        &program_id.bytes[0],
+        &address.bytes[0],
+        bump_seed,
+    );
+
+    if (result != 0) {
+        return error.InvalidSeeds;
     }
 }
